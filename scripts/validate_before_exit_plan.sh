@@ -82,6 +82,67 @@ if ! echo "$PLAN_CONTENT" | grep -qiE '(existing|found|pattern|readme|documentat
     exit 2
 fi
 
+# ── Check 3: Architectural justification gate ──
+
+# 3a: Justification section must exist
+if ! echo "$PLAN_CONTENT" | grep -qiE '^##\s+Justification'; then
+    cat << EOF
+BLOCKED: Plan is missing a ## Justification section.
+
+Every plan must include a ## Justification section that explains WHY the
+chosen approach is consistent with existing project architecture.
+
+Add a section like:
+
+  ## Justification
+
+  Per docs/BLEND_IMPORT_PROCESS.md, the established pipeline exports GLBs
+  via Blender CLI. This approach follows that pattern because ...
+
+Then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# Extract the Justification section (from header to next ## or EOF, max 50 lines)
+JUSTIFICATION=$(echo "$PLAN_CONTENT" | sed -n '/^##[[:space:]]*[Jj]ustification/,/^##/p' | head -50 | tail -n +2 | grep -v '^## ')
+
+# 3b: Must cite at least one project file path
+if ! echo "$JUSTIFICATION" | grep -qE '(docs/|scripts/|tools/|assets/|scenes/|CLAUDE\.md|README|\.gd|\.md|\.tscn|\.tres)'; then
+    cat << EOF
+BLOCKED: Justification section has no project file citations.
+
+The ## Justification section must reference at least one project file to
+show which documentation or code informed the approach.
+
+Example citations:
+  - Per docs/design.md FR-26, settlements start as Level 1
+  - Following the pattern in scripts/autoload/FactionBuildings.gd
+  - Consistent with CLAUDE.md Plan Requirements section
+
+Add file references to your Justification, then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# 3c: Must contain causal/reasoning language
+if ! echo "$JUSTIFICATION" | grep -qiE '(because|consistent with|per |therefore|aligns with|following the|in line with|as documented|as specified|this follows|this matches)'; then
+    cat << EOF
+BLOCKED: Justification section lacks reasoning language.
+
+The ## Justification must explain WHY the approach was chosen, not just
+list what was read. Use causal language to connect documentation to decisions.
+
+Good: "Per docs/design.md, factions emerge at Level 2, therefore we trigger
+       faction creation in the population callback."
+Bad:  "Read docs/design.md. Will add faction creation."
+
+Add reasoning language (because, per, therefore, consistent with, following the,
+aligns with, etc.) then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
 # ── All checks passed — create approval markers ──
 touch "/tmp/.claude_plan_approved_${PPID}"
 
