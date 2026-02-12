@@ -1,67 +1,110 @@
-# Global Claude Code Configuration
+# Claude Code SDLC Enforcement
 
-This directory (`~/.claude`) contains global configuration that applies to Claude Code across **all projects** on this computer.
+A hook-based system that mechanically enforces software development discipline in Claude Code sessions. Instead of relying on instructions that the model can ignore, this uses Claude Code's hook system to **block tool execution** when the model tries to skip steps.
 
-## Configuration Hierarchy
+## The Problem
 
-Claude Code loads instructions in this order (later overrides earlier):
+Claude Code's helpfulness bias makes it skip exploration and write thin plans. Instruction files say "explore first, plan second" but the model routinely jumps straight to code. The result: changes that don't fit the codebase, duplicate functions, missed patterns.
 
-1. **Global instructions** (this directory): `~/.claude/instructions.md`
-2. **Project instructions**: `<project>/.claude/instructions.md`
-3. **Project guidelines**: `<project>/AI_CODING_GUIDELINES.md`
-4. **User reminders**: Direct instructions in conversation
+## The Solution
 
-## Files in This Directory
+Three enforcement layers, each backed by shell scripts that return exit code 2 (block) when the model cuts corners:
 
-- **instructions.md** - Universal workflow rules for all projects
-- **GLOBAL_RULES.md** - Quick reference for core principles
-- **README.md** - This file, explaining how it all works
+### Layer 1: Plan Gate (Edit/Write Blocking)
+**No code changes without an approved plan.** Every `Edit`, `Write`, and `NotebookEdit` call is intercepted by `require_plan_approval.sh`. If no approval markers exist, the tool is blocked with instructions telling the model exactly what to do.
 
-## How It Works
+### Layer 2: Exploration Tracking
+**The model must actually read before it plans.** When `EnterPlanMode` fires, `clear_plan_on_new_task.sh` creates a planning marker and resets an exploration counter to zero. Every subsequent `Read`, `Glob`, or `Grep` call increments the counter via `track_exploration.sh`. This runs in <5ms and does nothing outside plan mode.
 
-1. When you start Claude Code in ANY project, it automatically loads `~/.claude/instructions.md`
-2. If the project has `.claude/instructions.md`, that gets loaded too (and takes priority)
-3. This ensures consistent behavior across all your projects
+### Layer 3: Plan Quality Gate
+**The plan must be substantive.** When the model calls `ExitPlanMode`, `validate_before_exit_plan.sh` runs as a PreToolUse hook and checks:
 
-## Usage Tips
+| Check | Requirement | Why |
+|-------|-------------|-----|
+| Exploration depth | >= 3 reads/searches | Forces the model to actually look at docs and code |
+| Plan freshness | < 30 minutes old | Prevents stale plans from prior sessions |
+| Plan substance | >= 50 words | Blocks one-liner "plans" |
+| File references | At least one file path | Plan must reference real files |
+| Exploration evidence | Keywords like "existing", "found", "current" | Plan must describe what was discovered |
 
-### For Universal Rules
-Edit `~/.claude/instructions.md` to add rules that should apply to ALL your projects:
-- Code review standards
-- Security practices
-- Documentation requirements
-- General workflow preferences
+If any check fails, `ExitPlanMode` is blocked and the model gets a specific error message telling it what's missing.
 
-### For Project-Specific Rules
-Create `<project>/.claude/instructions.md` for project-specific requirements:
-- Framework-specific patterns
-- Team conventions
-- Deployment procedures
-- Project architecture rules
+### Layer 4: Per-Turn Approval Expiry
+**Approval dies on every user message.** `check_clear_approval_command.sh` fires on `UserPromptSubmit` and unconditionally clears both approval markers. The model gets exactly one turn to implement after plan approval. Follow-up messages like "fix this" or "that's wrong" require a fresh plan cycle.
 
-### Reinforcement in Long Conversations
-Claude's adherence can drift in long conversations. Periodically remind:
+## State Machine
+
 ```
-"Check GLOBAL_RULES.md and follow the workflow strictly"
+[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved]
+      ^                               |                           |
+      |                          (reads tracked,            (model implements
+      |                           counter increments)        in same turn)
+      |                                                           |
+      └──── UserPromptSubmit (ANY user message) ──────────────────┘
 ```
 
-## Best Practices
+## File Reference
 
-1. **Keep global rules general** - They apply everywhere, so keep them universally applicable
-2. **Keep them short** - Under 50 lines for better adherence
-3. **Use strong language** - ALWAYS, NEVER, MUST, MANDATORY for critical rules
-4. **Add STOP POINTS** - Where Claude must wait for approval
-5. **Periodic reminders** - Every 5-10 exchanges in long chats
+### Scripts (`scripts/`)
 
-## Testing
+| Script | Hook | Purpose |
+|--------|------|---------|
+| `require_plan_approval.sh` | PreToolUse: Edit\|Write\|NotebookEdit | Blocks code changes without approval markers |
+| `validate_before_exit_plan.sh` | PreToolUse: ExitPlanMode | Quality gate — checks exploration + plan substance, creates markers on pass |
+| `mark_plan_approved.sh` | PostToolUse: ExitPlanMode | Backup marker creation (redundant with validate script) |
+| `clear_plan_on_new_task.sh` | PostToolUse: EnterPlanMode | Clears old approval, starts exploration tracking |
+| `track_exploration.sh` | PostToolUse: Read\|Glob\|Grep | Increments exploration counter during planning |
+| `check_clear_approval_command.sh` | UserPromptSubmit | Clears all approval markers on every user message |
+| `restore_approval.sh` | Manual | Emergency escape hatch — user runs directly to bypass |
+| `clear_approval.sh` | Manual | Force-clear approval markers |
+| `strip-claude-coauthor.sh` | Git hook | Removes "Co-Authored-By: Claude" from commit messages |
 
-To verify Claude is loading your instructions:
-1. Start a new conversation
-2. Ask: "What workflow should you follow before writing code?"
-3. Claude should mention the EXPLORE → PLAN → CONFIRM → CODE workflow
+### Git Hooks (`git-hooks/`)
 
-## Updating
+Commit message hygiene and safety checks. Set globally via `git config --global core.hooksPath ~/.claude/git-hooks`.
 
-After editing instructions.md:
-- Changes apply immediately to NEW conversations
-- For existing conversations, remind Claude: "Reload instructions from ~/.claude/instructions.md"
+### Configuration
+
+| File | Purpose |
+|------|---------|
+| `CLAUDE.md` | Instructions loaded into every session — rules, plan requirements, state machine docs |
+| `settings.json` | Hook wiring — maps tool events to enforcement scripts |
+
+## Installation
+
+```bash
+git clone https://github.com/samudzi/claude-code-sdlc.git ~/.claude-sdlc
+
+# Copy into your ~/.claude directory (or symlink)
+cp ~/.claude-sdlc/CLAUDE.md ~/.claude/CLAUDE.md
+cp ~/.claude-sdlc/settings.json ~/.claude/settings.json
+cp -r ~/.claude-sdlc/scripts/ ~/.claude/scripts/
+cp -r ~/.claude-sdlc/git-hooks/ ~/.claude/git-hooks/
+
+# Make scripts executable
+chmod +x ~/.claude/scripts/*.sh ~/.claude/git-hooks/*
+
+# Optional: set global git hooks
+git config --global core.hooksPath ~/.claude/git-hooks
+```
+
+## Customization
+
+**Adjust exploration minimum:** Change the `3` in `validate_before_exit_plan.sh` line 10.
+
+**Adjust plan word minimum:** Change the `50` in `validate_before_exit_plan.sh` line 62.
+
+**Disable per-turn expiry:** Replace the body of `check_clear_approval_command.sh` with the original `/clear-approval`-only version to let approval persist across turns.
+
+**Add project-specific rules:** Create `<project>/CLAUDE.md` with project-specific instructions. These load alongside the global `~/.claude/CLAUDE.md`.
+
+## Escape Hatches
+
+If the enforcement is blocking legitimate work:
+
+```bash
+# Restore approval for this session (expires on next user message)
+~/.claude/scripts/restore_approval.sh
+```
+
+The system is designed so that a competent model doing its job properly never hits the gates — they only fire when it tries to shortcut.
