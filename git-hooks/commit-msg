@@ -1,0 +1,15 @@
+#!/bin/bash
+# Global commit-msg hook: strips Claude self-attribution
+# Chains to local hooks if they exist
+
+# Chain to local .git/hooks/commit-msg if it exists
+if [[ -x ".git/hooks/commit-msg" ]]; then
+    .git/hooks/commit-msg "$@"
+    LOCAL_EXIT=$?
+    if [[ $LOCAL_EXIT -ne 0 ]]; then
+        exit $LOCAL_EXIT
+    fi
+fi
+
+# Strip Claude self-attribution (always runs, even after local hook)
+~/.claude/scripts/strip-claude-coauthor.sh "$1"

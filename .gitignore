@@ -1,0 +1,15 @@
+# Track only the shareable template files
+# Everything else is local state
+
+# Ignore everything by default
+*
+
+# Then whitelist the template files
+!.gitignore
+!CLAUDE.md
+!settings.json
+!scripts/
+!scripts/**
+!git-hooks/
+!git-hooks/**
+!README.md
