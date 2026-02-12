@@ -8,18 +8,43 @@
 #
 # Approval persists until EnterPlanMode starts a NEW task.
 # Commits do NOT reset approval.
+#
+# When allowed, injects exploration context to ground the model's immediate attention.
+
+# Helper: output exploration context and git status for the file being edited
+inject_context() {
+    local file="$1"
+    local log="/tmp/.claude_exploration_log_${PPID}"
+
+    # Exploration context (deduped, max 20 lines)
+    if [[ -f "$log" ]]; then
+        echo "───── Exploration context (from planning phase) ─────"
+        sort -u "$log" | head -20
+        echo "─────────────────────────────────────────────────────"
+    fi
+
+    # Git status for the specific file being edited
+    if [[ -n "$file" ]]; then
+        local status
+        status=$(git status --porcelain -- "$file" 2>/dev/null)
+        if [[ -n "$status" ]]; then
+            echo "Git status for $file: $status"
+        fi
+    fi
+}
 
 # Read tool input
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 
-# Always allow writes to plan files (plan mode needs this)
+# Always allow writes to plan files (plan mode needs this — no context injection needed)
 if [[ "$FILE_PATH" == *"/.claude/plans/"* ]]; then
     exit 0
 fi
 
 # Check 1: Session marker (fast path for current session)
 if [[ -f "/tmp/.claude_plan_approved_${PPID}" ]]; then
+    inject_context "$FILE_PATH"
     exit 0
 fi
 
@@ -31,6 +56,7 @@ if [[ -n "$PROJECT_ROOT" && -f "$PROJECT_ROOT/.claude_active_plan" ]]; then
     if [[ $MARKER_AGE -lt 86400 ]]; then
         # Restore session marker for faster future checks
         touch "/tmp/.claude_plan_approved_${PPID}"
+        inject_context "$FILE_PATH"
         exit 0
     fi
 fi

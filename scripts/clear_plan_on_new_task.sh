@@ -14,8 +14,9 @@ fi
 # Create planning marker (signals exploration tracking is active)
 touch "/tmp/.claude_planning_${PPID}"
 
-# Reset exploration counter
+# Reset exploration counter and log
 echo 0 > "/tmp/.claude_explore_count_${PPID}"
+rm -f "/tmp/.claude_exploration_log_${PPID}"
 
 echo "Previous plan cleared. Exploration tracking started. Read docs and code before writing a plan."
 exit 0

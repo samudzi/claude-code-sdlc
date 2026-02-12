@@ -143,6 +143,44 @@ EOF
     exit 2
 fi
 
+# ── Check 4: Cross-reference plan against exploration log ──
+EXPLORATION_LOG="/tmp/.claude_exploration_log_${PPID}"
+if [[ -f "$EXPLORATION_LOG" ]]; then
+    # Extract unique basenames from READ entries in the exploration log
+    EXPLORED_FILES=$(grep '^READ:' "$EXPLORATION_LOG" | sed 's/^READ:[[:space:]]*//' | xargs -I{} basename {} 2>/dev/null | sort -u)
+
+    if [[ -n "$EXPLORED_FILES" ]]; then
+        MATCH_COUNT=0
+        MATCHED=""
+        UNMATCHED=""
+
+        while IFS= read -r BASENAME; do
+            [[ -z "$BASENAME" ]] && continue
+            # Strip extension for flexible matching (e.g. "foo.sh" matches "foo.sh" or "foo")
+            NAME_NO_EXT="${BASENAME%.*}"
+            if echo "$PLAN_CONTENT" | grep -qF "$BASENAME" || echo "$PLAN_CONTENT" | grep -qF "$NAME_NO_EXT"; then
+                MATCH_COUNT=$(( MATCH_COUNT + 1 ))
+                MATCHED="${MATCHED}  - ${BASENAME}\n"
+            else
+                UNMATCHED="${UNMATCHED}  - ${BASENAME}\n"
+            fi
+        done <<< "$EXPLORED_FILES"
+
+        if [[ "$MATCH_COUNT" -lt 2 ]]; then
+            cat << EOF
+BLOCKED: Plan does not reference enough of the files you explored.
+
+You read these files during exploration but the plan does not mention them:
+$(echo -e "$UNMATCHED")
+The plan only references $MATCH_COUNT explored file(s). Minimum required: 2.
+$(if [[ -n "$MATCHED" ]]; then echo -e "Files referenced:\n$MATCHED"; fi)
+Update your plan to reference the files you actually read, then try ExitPlanMode again.
+EOF
+            exit 2
+        fi
+    fi
+fi
+
 # ── All checks passed — create approval markers ──
 touch "/tmp/.claude_plan_approved_${PPID}"
 
