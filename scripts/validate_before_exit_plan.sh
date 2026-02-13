@@ -143,6 +143,118 @@ EOF
     exit 2
 fi
 
+# ── Check 5: Objective section ──
+if ! echo "$PLAN_CONTENT" | grep -qiE '^##\s+Objective'; then
+    cat << EOF
+BLOCKED: Plan is missing a ## Objective section.
+
+Every plan must include a ## Objective section that states what you are
+doing and why. This gets injected into context during implementation to
+prevent objective drift.
+
+Add a section like:
+
+  ## Objective
+
+  Add scope enforcement to the hook system so that edits outside
+  the declared file list are blocked during implementation.
+
+Then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# Extract Objective content (from header to next ## or EOF)
+OBJECTIVE_CONTENT=$(echo "$PLAN_CONTENT" | sed -n '/^##[[:space:]]*[Oo]bjective/,/^##/p' | tail -n +2 | grep -v '^## ')
+OBJECTIVE_WORDS=$(echo "$OBJECTIVE_CONTENT" | wc -w | tr -d ' ')
+if [[ "$OBJECTIVE_WORDS" -lt 10 ]]; then
+    cat << EOF
+BLOCKED: ## Objective section is too short ($OBJECTIVE_WORDS words, minimum 10).
+
+The objective must clearly state what you are doing and why, in enough
+detail to keep you on track during implementation.
+
+Then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# ── Check 6: Scope section ──
+if ! echo "$PLAN_CONTENT" | grep -qiE '^##\s+Scope'; then
+    cat << EOF
+BLOCKED: Plan is missing a ## Scope section.
+
+Every plan must include a ## Scope section listing every file that will
+be modified, one per line as a markdown list item.
+
+Add a section like:
+
+  ## Scope
+
+  - scripts/autoload/FactionBuildings.gd
+  - scenes/ui/settlement_panel.tscn
+  - docs/design.md
+
+Then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# Extract Scope content and check for file paths
+SCOPE_CONTENT=$(echo "$PLAN_CONTENT" | sed -n '/^##[[:space:]]*[Ss]cope/,/^##/p' | tail -n +2 | grep -v '^## ')
+SCOPE_FILE_LINES=$(echo "$SCOPE_CONTENT" | grep -E '^\s*-\s+.*/' | grep -E '\.[a-zA-Z]{1,10}(\s|$|`|\))')
+if [[ -z "$SCOPE_FILE_LINES" ]]; then
+    cat << EOF
+BLOCKED: ## Scope section has no file paths.
+
+The ## Scope section must list every file that will be modified, one per
+line starting with "- " and containing a path with / and file extension.
+
+Example:
+  - ~/.claude/scripts/validate_before_exit_plan.sh
+  - ~/.claude/CLAUDE.md
+
+List every file that will be modified, then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# ── Check 7: Success Criteria section ──
+if ! echo "$PLAN_CONTENT" | grep -qiE '^##\s+Success\s+Criteria'; then
+    cat << EOF
+BLOCKED: Plan is missing a ## Success Criteria section.
+
+Every plan must include a ## Success Criteria section describing how to
+verify the task is done. This is checked after implementation.
+
+Add a section like:
+
+  ## Success Criteria
+
+  1. Writing a plan without required sections is blocked at ExitPlanMode
+  2. Editing a file not in scope is blocked with a clear error
+  3. Manual test passes: edit file A (allowed), edit file B (blocked)
+
+Then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
+# Extract Success Criteria content
+CRITERIA_CONTENT=$(echo "$PLAN_CONTENT" | sed -n '/^##[[:space:]]*[Ss]uccess[[:space:]]*[Cc]riteria/,/^##/p' | tail -n +2 | grep -v '^## ')
+CRITERIA_WORDS=$(echo "$CRITERIA_CONTENT" | wc -w | tr -d ' ')
+if [[ "$CRITERIA_WORDS" -lt 10 ]]; then
+    cat << EOF
+BLOCKED: ## Success Criteria section is too short ($CRITERIA_WORDS words, minimum 10).
+
+The success criteria must describe how to verify the task is complete,
+in enough detail to validate the implementation.
+
+Then try ExitPlanMode again.
+EOF
+    exit 2
+fi
+
 # ── Check 4: Cross-reference plan against exploration log ──
 EXPLORATION_LOG="/tmp/.claude_exploration_log_${PPID}"
 if [[ -f "$EXPLORATION_LOG" ]]; then

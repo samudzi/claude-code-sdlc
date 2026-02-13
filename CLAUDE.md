@@ -23,6 +23,14 @@ Every plan MUST include:
 - Specific files that will be modified
 - The minimal change needed
 
+Every plan MUST include these enforced sections:
+- `## Objective` — What are we doing and why (≥ 10 words)
+- `## Scope` — Every file that will be modified, one per line as `- path/to/file.ext`
+- `## Success Criteria` — How to verify the task is done (≥ 10 words)
+- `## Justification` — Why this approach, citing project docs (existing requirement)
+
+The Scope section is enforced: edits to files not listed will be BLOCKED.
+
 ## UI Changes Require ASCII Mockups
 When a plan involves ANY visual/UI change, the plan MUST include an ASCII mockup
 showing the proposed layout BEFORE and AFTER. No UI code without a visual preview.

@@ -11,10 +11,78 @@
 #
 # When allowed, injects exploration context to ground the model's immediate attention.
 
-# Helper: output exploration context and git status for the file being edited
+# Helper: check if file is within the declared scope
+check_scope() {
+    local file="$1"
+    local scope_file="/tmp/.claude_scope_${PPID}"
+
+    # If no scope file exists (older plan format), allow all edits
+    [[ ! -f "$scope_file" ]] && return 0
+    # Empty scope file means no enforcement
+    [[ ! -s "$scope_file" ]] && return 0
+
+    # Check each scope entry — allow if the file path ends with the scope path,
+    # or the scope path is a prefix of the file path
+    while IFS= read -r SCOPE_PATH; do
+        [[ -z "$SCOPE_PATH" ]] && continue
+        # Expand ~ to $HOME for comparison
+        local expanded_scope="${SCOPE_PATH/#\~/$HOME}"
+        # Exact match
+        if [[ "$file" == "$expanded_scope" ]]; then
+            return 0
+        fi
+        # File ends with scope path (e.g. scope says "scripts/foo.sh", file is "/full/path/scripts/foo.sh")
+        if [[ "$file" == *"$SCOPE_PATH" ]]; then
+            return 0
+        fi
+        # Scope is a directory prefix (e.g. scope says "src/", file is "src/foo.js")
+        if [[ "$file" == "${expanded_scope}"* ]]; then
+            return 0
+        fi
+    done < "$scope_file"
+
+    # No match — block
+    cat << EOF
+═══════════════════════════════════════════════════════════════════
+BLOCKED: File not in approved scope.
+═══════════════════════════════════════════════════════════════════
+
+File: $file
+
+Approved scope:
+$(sed 's/^/  - /' "$scope_file")
+
+To modify this file, update your plan's ## Scope section and get re-approval.
+═══════════════════════════════════════════════════════════════════
+EOF
+    return 1
+}
+
+# Helper: output objective grounding + exploration context + git status
 inject_context() {
     local file="$1"
     local log="/tmp/.claude_exploration_log_${PPID}"
+    local obj_file="/tmp/.claude_objective_${PPID}"
+    local scope_file="/tmp/.claude_scope_${PPID}"
+    local criteria_file="/tmp/.claude_success_criteria_${PPID}"
+
+    # Objective grounding (injected FIRST to anchor attention)
+    if [[ -f "$obj_file" && -s "$obj_file" ]]; then
+        echo "───── OBJECTIVE ─────"
+        head -3 "$obj_file"
+        echo ""
+    fi
+    if [[ -f "$scope_file" && -s "$scope_file" ]]; then
+        echo "───── SCOPE (only these files may be edited) ─────"
+        cat "$scope_file"
+        echo ""
+    fi
+    if [[ -f "$criteria_file" && -s "$criteria_file" ]]; then
+        echo "───── SUCCESS CRITERIA ─────"
+        head -3 "$criteria_file"
+        echo ""
+    fi
+    echo "─────────────────────────────────────────────────────"
 
     # Exploration context (deduped, max 20 lines)
     if [[ -f "$log" ]]; then
@@ -44,6 +112,10 @@ fi
 
 # Check 1: Session marker (fast path for current session)
 if [[ -f "/tmp/.claude_plan_approved_${PPID}" ]]; then
+    # Enforce scope before allowing the edit
+    if ! check_scope "$FILE_PATH"; then
+        exit 2
+    fi
     inject_context "$FILE_PATH"
     exit 0
 fi
@@ -56,6 +128,10 @@ if [[ -n "$PROJECT_ROOT" && -f "$PROJECT_ROOT/.claude_active_plan" ]]; then
     if [[ $MARKER_AGE -lt 86400 ]]; then
         # Restore session marker for faster future checks
         touch "/tmp/.claude_plan_approved_${PPID}"
+        # Enforce scope before allowing the edit
+        if ! check_scope "$FILE_PATH"; then
+            exit 2
+        fi
         inject_context "$FILE_PATH"
         exit 0
     fi
