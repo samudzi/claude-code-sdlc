@@ -8,28 +8,47 @@ if ! command -v jq &>/dev/null; then
     exit 1
 fi
 
-# ── init_hook: read stdin, extract session_id, set up state dir ──
-# Call this once after sourcing. Sets: HOOK_INPUT, SESSION_ID, STATE_DIR
+# ── init_hook: read stdin, extract session_id, set up state dirs ──
+# Sets: HOOK_INPUT, SESSION_ID, STATE_DIR (session), PERSIST_DIR (project)
 init_hook() {
     HOOK_INPUT=$(cat)
 
     SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 
-    # No session_id = silent no-op (cannot isolate state)
-    if [[ -z "$SESSION_ID" ]]; then
+    if [[ -z "$SESSION_ID" && -z "$CLAUDE_TEST_STATE_DIR" ]]; then
         exit 0
     fi
 
-    STATE_DIR="/tmp/.claude_hooks/${SESSION_ID}"
+    # Session-scoped ephemeral state (planning, explore_count)
+    STATE_DIR="${CLAUDE_TEST_STATE_DIR:-/tmp/.claude_hooks/${SESSION_ID}}"
     mkdir -p "$STATE_DIR"
+
+    # Project-scoped persistent state (approval, scope, objective, criteria)
+    PROJECT_HASH=$(pwd | shasum | cut -c1-12)
+    PERSIST_DIR="${CLAUDE_TEST_PERSIST_DIR:-${HOME}/.claude/state/${PROJECT_HASH}}"
+    mkdir -p "$PERSIST_DIR"
+
+    # Hydrate: if session lacks approval but project has it, restore into session
+    if [[ ! -f "${STATE_DIR}/approved" && -f "${PERSIST_DIR}/approved" ]]; then
+        for f in approved scope objective criteria; do
+            [[ -f "${PERSIST_DIR}/$f" ]] && cp "${PERSIST_DIR}/$f" "${STATE_DIR}/$f"
+        done
+    fi
 }
 
-# ── State helpers ──
+# ── Session state helpers ──
 state_file() { echo "${STATE_DIR}/$1"; }
 state_exists() { [[ -f "${STATE_DIR}/$1" ]]; }
 state_write() { echo "$2" > "${STATE_DIR}/$1"; }
 state_read() { cat "${STATE_DIR}/$1" 2>/dev/null; }
 state_remove() { rm -f "${STATE_DIR}/$1"; }
+
+# ── Persistent state helpers ──
+persist_file() { echo "${PERSIST_DIR}/$1"; }
+persist_exists() { [[ -f "${PERSIST_DIR}/$1" ]]; }
+persist_write() { echo "$2" > "${PERSIST_DIR}/$1"; }
+persist_read() { cat "${PERSIST_DIR}/$1" 2>/dev/null; }
+persist_remove() { rm -f "${PERSIST_DIR}/$1"; }
 
 # ── JSON field extraction ──
 tool_name() { echo "$HOOK_INPUT" | jq -r '.tool_name // empty'; }
@@ -46,7 +65,6 @@ file_mtime() {
 }
 
 # ── Atomic counter increment ──
-# Uses mktemp + mv on same filesystem for atomic rename
 counter_increment() {
     local name="$1"
     local file="${STATE_DIR}/${name}"
@@ -61,7 +79,6 @@ counter_increment() {
 }
 
 # ── Hook output: deny tool ──
-# Outputs structured JSON that Claude Code reads as a deny decision
 deny_tool() {
     local reason="$1"
     local hook_event="${2:-PreToolUse}"
@@ -73,7 +90,6 @@ deny_tool() {
 }
 
 # ── Hook output: allow with context ──
-# Injects additionalContext into Claude's attention on allow
 allow_with_context() {
     local context="$1"
     local hook_event="${2:-PreToolUse}"

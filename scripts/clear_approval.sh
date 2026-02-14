@@ -1,43 +1,21 @@
 #!/bin/bash
 # Clear plan approval — forces Claude back into plan mode
-# Usage: ~/.claude/scripts/clear_approval.sh [session_id]
-#   No args: lists active sessions and clears if only one
-#   With session_id: clears approval for that session
+# Usage: ~/.claude/scripts/clear_approval.sh
+# No args needed — uses current working directory
 
-HOOKS_DIR="/tmp/.claude_hooks"
+PROJECT_HASH=$(pwd | shasum | cut -c1-12)
+PERSIST_DIR="${CLAUDE_TEST_PERSIST_DIR:-${HOME}/.claude/state/${PROJECT_HASH}}"
 
-if [[ -z "$1" ]]; then
-    if [[ ! -d "$HOOKS_DIR" ]] || [[ -z "$(ls -A "$HOOKS_DIR" 2>/dev/null)" ]]; then
-        echo "No active sessions found in $HOOKS_DIR"
-        exit 1
-    fi
+# Clear persistent state
+rm -f "${PERSIST_DIR}/approved" "${PERSIST_DIR}/objective" "${PERSIST_DIR}/scope" "${PERSIST_DIR}/criteria" "${PERSIST_DIR}/context_injected"
 
-    SESSIONS=()
+# Clear all active session states
+HOOKS_DIR="${CLAUDE_TEST_HOOKS_DIR:-/tmp/.claude_hooks}"
+if [[ -d "$HOOKS_DIR" ]]; then
     for D in "$HOOKS_DIR"/*/; do
         [[ -d "$D" ]] || continue
-        SID=$(basename "$D")
-        STATUS="no approval"
-        [[ -f "$D/approved" ]] && STATUS="approved"
-        [[ -f "$D/planning" ]] && STATUS="planning"
-        echo "  $SID  ($STATUS)"
-        SESSIONS+=("$SID")
+        rm -f "${D}/approved" "${D}/objective" "${D}/scope" "${D}/criteria" "${D}/context_injected"
     done
-
-    if [[ ${#SESSIONS[@]} -eq 1 ]]; then
-        echo ""
-        echo "Only one session found. Clearing approval..."
-        rm -f "${HOOKS_DIR}/${SESSIONS[0]}/approved"
-        rm -f "${HOOKS_DIR}/${SESSIONS[0]}/context_injected"
-        echo "Approval cleared for session ${SESSIONS[0]}."
-    else
-        echo ""
-        echo "Multiple sessions found. Run with session_id argument:"
-        echo "  ~/.claude/scripts/clear_approval.sh <session_id>"
-    fi
-    exit 0
 fi
 
-SESSION_ID="$1"
-rm -f "${HOOKS_DIR}/${SESSION_ID}/approved"
-rm -f "${HOOKS_DIR}/${SESSION_ID}/context_injected"
-echo "Approval cleared for session $SESSION_ID. Claude must now plan before editing."
+echo "Approval cleared for project (hash: ${PROJECT_HASH}). Claude must now plan before editing."

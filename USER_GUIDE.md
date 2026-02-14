@@ -58,19 +58,25 @@ Claude:  "Here's my plan: [plan]. Ready to implement?"
 You:     [review plan, approve or request changes]
 Claude:  [implements the fix, scoped to approved files only]
 Claude:  "Implementation complete. Review and type /accept or /reject."
-You:     /accept   (or /reject to start over)
+You:     /accept
 ```
 
 ### Follow-up messages during implementation
 
-Approval persists across your messages until you explicitly type `/accept` or `/reject`. You can send follow-up messages like "also update the test" or "that's not quite right" and Claude continues working under the same approved plan. No need to re-plan for minor adjustments within scope.
+Approval persists across your messages — you can send follow-ups like "also update the test" or "that's not quite right" and Claude continues working under the same approved plan. No need to re-plan for minor adjustments within scope.
+
+### Resuming across sessions
+
+Approval is stored per project directory and **survives across sessions**. If you approve a plan, close Claude, and come back later, the approval is still there. Claude picks up where it left off — no re-planning required.
 
 ### When does approval clear?
 
 Approval clears only when:
-- You type `/accept` — you're satisfied with the implementation
-- You type `/reject` — Claude must re-plan from scratch
-- Claude enters a new plan cycle — starting a new task clears the old approval
+- You type **`/accept`** — you're satisfied with the implementation
+- You type **`/reject`** — the implementation is wrong, Claude must re-plan
+- Claude enters a **new plan cycle** — starting a different task clears the old approval
+
+Nothing else clears it. Not closing the session. Not sending follow-up messages. Not switching terminals.
 
 ### Emergency escape hatch
 
@@ -80,7 +86,7 @@ If the enforcement is blocking legitimate work (edge cases happen):
 ~/.claude/scripts/restore_approval.sh
 ```
 
-This manually restores approval for the current session. Use sparingly — the system is designed so a model doing its job properly never hits the gates.
+This restores approval for the current project directory. It persists across sessions — you won't need to run it again.
 
 ## Usage Examples
 
@@ -92,7 +98,8 @@ You: "Fix #247 — payment webhook times out when Stripe sends duplicate events.
 
 What happens:
 - Claude reads your payment webhook handler, the Stripe integration module, and related tests
-- Plans a fix: adds idempotency check using existing `cache.get()` utility (which it found by reading your code, not by inventing a new caching layer)
+- Plans a fix: adds idempotency check using existing `cache.get()` utility
+  (which it found by reading your code, not by inventing a new caching layer)
 - You approve, it implements, you verify
 ```
 

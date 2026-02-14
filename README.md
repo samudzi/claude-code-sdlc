@@ -8,7 +8,7 @@ Claude Code's helpfulness bias makes it skip exploration and write thin plans. I
 
 ## The Solution
 
-Three enforcement layers, each backed by shell scripts that return exit code 2 (block) when the model cuts corners:
+Three enforcement layers, each backed by shell scripts that block tool execution when the model cuts corners:
 
 ### Layer 1: Plan Gate (Edit/Write Blocking)
 **No code changes without an approved plan.** Every `Edit`, `Write`, and `NotebookEdit` call is intercepted by `require_plan_approval.sh`. If no approval markers exist, the tool is blocked with instructions telling the model exactly what to do.
@@ -17,7 +17,7 @@ Three enforcement layers, each backed by shell scripts that return exit code 2 (
 **The model must actually read before it plans.** When `EnterPlanMode` fires, `clear_plan_on_new_task.sh` creates a planning marker and resets an exploration counter to zero. Every subsequent `Read`, `Glob`, or `Grep` call increments the counter via `track_exploration.sh`. This runs in <5ms and does nothing outside plan mode.
 
 ### Layer 3: Plan Quality Gate
-**The plan must be substantive.** When the model calls `ExitPlanMode`, `validate_before_exit_plan.sh` runs as a PreToolUse hook and checks:
+**The plan must be substantive.** When the model calls `ExitPlanMode`, `validate_plan_quality.sh` runs as a PreToolUse hook and checks:
 
 | Check | Requirement | Why |
 |-------|-------------|-----|
@@ -29,19 +29,23 @@ Three enforcement layers, each backed by shell scripts that return exit code 2 (
 
 If any check fails, `ExitPlanMode` is blocked and the model gets a specific error message telling it what's missing.
 
-### Layer 4: Per-Turn Approval Expiry
-**Approval dies on every user message.** `check_clear_approval_command.sh` fires on `UserPromptSubmit` and unconditionally clears both approval markers. The model gets exactly one turn to implement after plan approval. Follow-up messages like "fix this" or "that's wrong" require a fresh plan cycle.
-
 ## State Machine
 
 ```
-[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved]
+[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved/Implementing]
       ^                               |                           |
-      |                          (reads tracked,            (model implements
-      |                           counter increments)        in same turn)
+      |                          (reads tracked,            (approval persists
+      |                           counter increments)        across messages
+      |                                                      AND sessions)
       |                                                           |
-      └──── UserPromptSubmit (ANY user message) ──────────────────┘
+      └──── /accept, /reject, or EnterPlanMode ──────────────────┘
 ```
+
+Approval is **persistent** — stored per project directory in `~/.claude/state/`. New sessions on the same project automatically inherit existing approval. Approval clears only when:
+
+- **`/accept`** — user accepts the completed implementation (plugin command)
+- **`/reject`** — user rejects; must re-plan (plugin command)
+- **`EnterPlanMode`** — starting a new plan cycle clears the previous one
 
 ## File Reference
 
@@ -49,15 +53,37 @@ If any check fails, `ExitPlanMode` is blocked and the model gets a specific erro
 
 | Script | Hook | Purpose |
 |--------|------|---------|
+| `common.sh` | — | Shared library: state helpers, persistent state, session hydration |
 | `require_plan_approval.sh` | PreToolUse: Edit\|Write\|NotebookEdit | Blocks code changes without approval markers |
-| `validate_before_exit_plan.sh` | PreToolUse: ExitPlanMode | Quality gate — checks exploration + plan substance, creates markers on pass |
-| `mark_plan_approved.sh` | PostToolUse: ExitPlanMode | Backup marker creation (redundant with validate script) |
+| `validate_plan_quality.sh` | PreToolUse: ExitPlanMode | Quality gate — checks exploration + plan substance |
+| `approve_plan.sh` | PostToolUse: ExitPlanMode | Creates approval markers (session + persistent) |
 | `clear_plan_on_new_task.sh` | PostToolUse: EnterPlanMode | Clears old approval, starts exploration tracking |
-| `track_exploration.sh` | PostToolUse: Read\|Glob\|Grep | Increments exploration counter during planning |
-| `check_clear_approval_command.sh` | UserPromptSubmit | Clears all approval markers on every user message |
-| `restore_approval.sh` | Manual | Emergency escape hatch — user runs directly to bypass |
+| `track_exploration.sh` | PreToolUse: Read\|Glob\|Grep | Increments exploration counter during planning |
+| `check_clear_approval_command.sh` | UserPromptSubmit | No-op — approval persists across messages |
+| `guard_destructive_bash.sh` | PreToolUse: Bash | Guards against destructive shell commands |
+| `accept_outcome.sh` | Via `/accept` command | Clears approval after user accepts implementation |
+| `reject_outcome.sh` | Via `/reject` command | Clears approval after user rejects implementation |
+| `restore_approval.sh` | Manual | Emergency escape hatch — restores persistent approval |
 | `clear_approval.sh` | Manual | Force-clear approval markers |
+| `cleanup_session.sh` | SessionEnd | Cleans up session state directory |
+| `cleanup_stale_sessions.sh` | SessionStart | Removes session dirs older than 6 hours |
 | `strip-claude-coauthor.sh` | Git hook | Removes "Co-Authored-By: Claude" from commit messages |
+
+### Plugin (`plugins/plan-workflow/`)
+
+| Command | Description |
+|---------|-------------|
+| `/accept` | Accept completed implementation, clear plan approval |
+| `/reject` | Reject implementation, clear approval, request feedback |
+
+### State Storage
+
+| Location | Scope | Survives sessions? |
+|----------|-------|--------------------|
+| `/tmp/.claude_hooks/{session_id}/` | Session-specific (planning, explore_count) | No |
+| `~/.claude/state/{project_hash}/` | Project-specific (approval, scope, criteria) | Yes |
+
+On session start, `common.sh` hydrates session state from persistent state automatically.
 
 ### Git Hooks (`git-hooks/`)
 
@@ -74,6 +100,7 @@ Commit message hygiene and safety checks. Set globally via `git config --global 
 
 **Required:**
 - **Bash** 3.0+ (ships with macOS; check with `bash --version`)
+- **jq** — JSON processing (`brew install jq` / `apt install jq`)
 - **Git** (for hooks and `git rev-parse` in scripts)
 - **Claude Code CLI** installed and working ([install guide](https://docs.anthropic.com/en/docs/claude-code))
 
@@ -91,10 +118,7 @@ Commit message hygiene and safety checks. Set globally via `git config --global 
 
 **Platform notes:**
 - **macOS**: Works out of the box.
-- **Linux**: Three scripts use macOS-specific `stat -f %m` for file timestamps. Replace with `stat -c %Y` in these files:
-  - `scripts/validate_before_exit_plan.sh` (line 34)
-  - `scripts/mark_plan_approved.sh` (line 40)
-  - `scripts/require_plan_approval.sh` (line 127)
+- **Linux**: `common.sh` includes cross-platform `file_mtime()` that handles both macOS and Linux `stat` syntax.
 
 ## Installation
 
@@ -103,7 +127,6 @@ Commit message hygiene and safety checks. Set globally via `git config --global 
 If you already have a `~/.claude` directory with your own settings:
 
 ```bash
-# Back up your existing config
 cp ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak 2>/dev/null
 cp ~/.claude/settings.json ~/.claude/settings.json.bak 2>/dev/null
 ```
@@ -124,6 +147,9 @@ cp ~/.claude-sdlc/settings.json ~/.claude/settings.json
 # Enforcement scripts
 cp -r ~/.claude-sdlc/scripts/ ~/.claude/scripts/
 
+# Plugin (provides /accept and /reject commands)
+cp -r ~/.claude-sdlc/plugins/plan-workflow/ ~/.claude/plugins/plan-workflow/
+
 # Git hooks (pre-commit linting, commit-msg hygiene)
 cp -r ~/.claude-sdlc/git-hooks/ ~/.claude/git-hooks/
 ```
@@ -136,7 +162,13 @@ If you had existing `CLAUDE.md` content, merge your backed-up rules into the new
 chmod +x ~/.claude/scripts/*.sh ~/.claude/git-hooks/*
 ```
 
-### Step 5: Set global git hooks path
+### Step 5: Create required directories
+
+```bash
+mkdir -p ~/.claude/plans ~/.claude/state
+```
+
+### Step 6: Set global git hooks path
 
 ```bash
 git config --global core.hooksPath ~/.claude/git-hooks
@@ -144,11 +176,11 @@ git config --global core.hooksPath ~/.claude/git-hooks
 
 This makes the pre-commit (linting + safety checks) and commit-msg (attribution stripping) hooks run in every repo. Repos with their own linting frameworks (`.pre-commit-config.yaml`, `.husky`, `lefthook.yml`, `lint-staged`) are automatically bypassed.
 
-### Step 6: Verify the installation
+### Step 7: Verify the installation
 
 ```bash
 # 1. Check all scripts are executable
-ls -la ~/.claude/scripts/*.sh ~/.claude/git-hooks/*
+ls -la ~/.claude/scripts/*.sh
 
 # 2. Syntax-check every script
 for f in ~/.claude/scripts/*.sh; do bash -n "$f" && echo "OK: $f"; done
@@ -156,22 +188,12 @@ for f in ~/.claude/scripts/*.sh; do bash -n "$f" && echo "OK: $f"; done
 # 3. Verify hooks are wired
 cat ~/.claude/settings.json | grep -c '"command"'  # Should show 7 hooks
 
-# 4. Verify git hooks path
-git config --global core.hooksPath  # Should show ~/.claude/git-hooks
+# 4. Verify plugin exists
+cat ~/.claude/plugins/plan-workflow/.claude-plugin/plugin.json
 
-# 5. Test in any git repo — make a trivial change and commit
-cd /tmp && git init test-sdlc && cd test-sdlc
-echo "test" > test.txt && git add test.txt && git commit -m "test"
-cd / && rm -rf /tmp/test-sdlc
+# 5. Verify jq is installed
+jq --version
 ```
-
-### Step 7: Create the plans directory
-
-```bash
-mkdir -p ~/.claude/plans
-```
-
-This is where the model writes its plans during the planning phase. The directory is local-only (not tracked by git).
 
 ## Per-Project vs Global Setup
 
@@ -181,6 +203,7 @@ The files you installed apply to **every Claude Code session**:
 
 - `~/.claude/CLAUDE.md` — loaded as instructions in every session
 - `~/.claude/settings.json` — hooks fire on every tool call
+- `~/.claude/plugins/plan-workflow/` — `/accept` and `/reject` commands available everywhere
 - `~/.claude/git-hooks/` — run on every git commit (via `core.hooksPath`)
 
 ### Per-project overrides
@@ -188,7 +211,6 @@ The files you installed apply to **every Claude Code session**:
 Create a `CLAUDE.md` in any project root to add project-specific rules. Claude Code loads **both** the global `~/.claude/CLAUDE.md` and the project's `CLAUDE.md`:
 
 ```bash
-# Example: add project-specific instructions
 cat > ~/my-project/CLAUDE.md << 'EOF'
 # Project Instructions
 
@@ -204,25 +226,31 @@ If a specific repo needs its own pre-commit hook **instead of** the global one, 
 
 ## Customization
 
-**Adjust exploration minimum:** Change the `3` in `validate_before_exit_plan.sh` line 10.
+**Adjust exploration minimum:** Change the threshold in `validate_plan_quality.sh`.
 
-**Adjust plan word minimum:** Change the `50` in `validate_before_exit_plan.sh` line 62.
+**Adjust plan word minimum:** Change the word count check in `validate_plan_quality.sh`.
 
-**Adjust plan staleness window:** Change `1800` (30 minutes) in `validate_before_exit_plan.sh` line 50.
-
-**Disable per-turn expiry:** Replace the body of `check_clear_approval_command.sh` with the original `/clear-approval`-only version to let approval persist across turns.
+**Adjust plan staleness window:** Change the minutes threshold in `validate_plan_quality.sh`.
 
 **Add project-specific rules:** Create `<project>/CLAUDE.md` with project-specific instructions. These load alongside the global `~/.claude/CLAUDE.md`.
 
-**Disable specific git hooks:** Remove or rename individual files in `~/.claude/git-hooks/`. The pre-commit hook handles linting; the commit-msg hook strips Claude self-attribution; the others are git-lfs pass-throughs.
+**Disable specific git hooks:** Remove or rename individual files in `~/.claude/git-hooks/`.
 
 ## Escape Hatches
 
 If the enforcement is blocking legitimate work:
 
 ```bash
-# Restore approval for this session (expires on next user message)
+# Restore approval for the current project (persists across sessions)
 ~/.claude/scripts/restore_approval.sh
+
+# Or clear approval to force re-planning
+~/.claude/scripts/clear_approval.sh
 ```
 
 The system is designed so that a competent model doing its job properly never hits the gates — they only fire when it tries to shortcut.
+
+## Further Reading
+
+- **[USER_GUIDE.md](USER_GUIDE.md)** — When to use this, workflow examples, tips for AI/startup engineering
+- **[CLAUDE.md](CLAUDE.md)** — The instruction set loaded into Claude's context

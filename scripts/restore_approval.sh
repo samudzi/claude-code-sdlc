@@ -1,49 +1,26 @@
 #!/bin/bash
-# Emergency approval restore — run manually when approval was lost
-# Usage: ~/.claude/scripts/restore_approval.sh [session_id]
-#   No args: lists active sessions
-#   With session_id: creates approval for that session
+# Emergency approval restore — creates persistent project approval
+# Usage: ~/.claude/scripts/restore_approval.sh
+# No args needed — uses current working directory to find project state
 
-HOOKS_DIR="/tmp/.claude_hooks"
+PROJECT_HASH=$(pwd | shasum | cut -c1-12)
+PERSIST_DIR="${CLAUDE_TEST_PERSIST_DIR:-${HOME}/.claude/state/${PROJECT_HASH}}"
+mkdir -p "$PERSIST_DIR"
 
-if [[ -z "$1" ]]; then
-    # List active sessions
-    if [[ ! -d "$HOOKS_DIR" ]] || [[ -z "$(ls -A "$HOOKS_DIR" 2>/dev/null)" ]]; then
-        echo "No active sessions found in $HOOKS_DIR"
-        exit 1
-    fi
+echo "1" > "${PERSIST_DIR}/approved"
 
-    SESSIONS=()
+# Also restore into any active session dirs
+HOOKS_DIR="${CLAUDE_TEST_HOOKS_DIR:-/tmp/.claude_hooks}"
+if [[ -d "$HOOKS_DIR" ]]; then
     for D in "$HOOKS_DIR"/*/; do
         [[ -d "$D" ]] || continue
-        SID=$(basename "$D")
-        STATUS="no approval"
-        [[ -f "$D/approved" ]] && STATUS="approved"
-        [[ -f "$D/planning" ]] && STATUS="planning"
-        echo "  $SID  ($STATUS)"
-        SESSIONS+=("$SID")
+        echo "1" > "${D}/approved"
+        # Copy scope/objective/criteria from persistent if they exist
+        for f in scope objective criteria; do
+            [[ -f "${PERSIST_DIR}/$f" ]] && cp "${PERSIST_DIR}/$f" "${D}/$f"
+        done
     done
-
-    # Auto-select if only one session
-    if [[ ${#SESSIONS[@]} -eq 1 ]]; then
-        echo ""
-        echo "Only one session found. Restoring approval..."
-        mkdir -p "${HOOKS_DIR}/${SESSIONS[0]}"
-        echo "1" > "${HOOKS_DIR}/${SESSIONS[0]}/approved"
-        # No scope file = scope enforcement skipped for restored sessions
-        echo "Approval restored for session ${SESSIONS[0]}."
-    else
-        echo ""
-        echo "Multiple sessions found. Run with session_id argument:"
-        echo "  ~/.claude/scripts/restore_approval.sh <session_id>"
-    fi
-    exit 0
 fi
 
-# Restore specific session
-SESSION_ID="$1"
-mkdir -p "${HOOKS_DIR}/${SESSION_ID}"
-echo "1" > "${HOOKS_DIR}/${SESSION_ID}/approved"
-# No scope file = scope enforcement skipped for restored sessions
-echo "Approval restored for session $SESSION_ID."
-echo "Approval will expire on the next user message."
+echo "Approval restored for project (hash: ${PROJECT_HASH})."
+echo "Will persist across sessions until /accept, /reject, or new plan cycle."

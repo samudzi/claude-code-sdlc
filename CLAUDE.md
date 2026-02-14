@@ -51,7 +51,7 @@ When something doesn't work, DO NOT immediately jump to code changes:
 
 Hooks **BLOCK Edit/Write/NotebookEdit** until plan approval.
 Hooks **BLOCK ExitPlanMode** if exploration or plan quality is insufficient.
-Approval **persists until the user explicitly accepts or rejects** the implementation outcome.
+Approval **persists across sessions** (project-scoped) until explicitly cleared.
 
 ### State Machine
 
@@ -59,24 +59,27 @@ Approval **persists until the user explicitly accepts or rejects** the implement
 [No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved/Implementing]
       ^                                                           │
       │                                          (approval persists across ALL
-      │                                           user messages — no auto-expiry)
+      │                                           user messages AND sessions)
       │                                                           │
-      │                                          user types /accept or /reject
+      │                                          /accept, /reject, or EnterPlanMode
       │                                                           │
       └───────────────────────────────────────────────────────────┘
 ```
 
 Approval is cleared ONLY by:
-- `/accept` — user accepts the implementation outcome
-- `/reject` — user rejects; must re-plan
+- `/accept` — user accepts the implementation (command)
+- `/reject` — user rejects; must re-plan (command)
 - `EnterPlanMode` — starting a new plan cycle clears the previous one
+
+Approval is stored persistently per project directory. New sessions on the same
+project automatically inherit existing approval state.
 
 ### The Workflow
 
 1. `EnterPlanMode` → clears approval, enters planning, starts exploration tracking
 2. Explore codebase: Read docs, Grep/Glob for related code (minimum 3 reads/searches)
 3. Write substantive plan to plan file (50+ words, reference files found)
-4. `ExitPlanMode` → validates exploration + plan quality → creates approval markers → user approves
+4. `ExitPlanMode` → validates exploration + plan quality → user approves
 5. Edit/Write/NotebookEdit now allowed — implement across as many turns as needed
 6. When implementation is complete, tell the user to review and type `/accept` or `/reject`
 
@@ -84,7 +87,7 @@ Approval is cleared ONLY by:
 
 **Always:** Follow steps 1-6 above.
 
-**Emergency escape hatch (user runs manually):**
+**Emergency escape hatch (user runs manually from project directory):**
 ```
 ~/.claude/scripts/restore_approval.sh
 ```
