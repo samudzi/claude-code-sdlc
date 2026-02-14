@@ -7,10 +7,15 @@
 
 # Get the plan file from tool output if available
 INPUT=$(cat)
+
+# Extract session_id from hook stdin JSON, fallback to PPID
+SESSION_ID=$(echo "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/')
+SESSION_ID="${SESSION_ID:-$PPID}"
+
 PLAN_FILE=$(echo "$INPUT" | grep -o '"plan_file"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/' || echo "unknown")
 
 # Create session marker
-touch "/tmp/.claude_plan_approved_${PPID}"
+touch "/tmp/.claude_plan_approved_${SESSION_ID}"
 
 # Create active plan marker with metadata
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -18,7 +23,7 @@ if [[ -n "$PROJECT_ROOT" ]]; then
     cat > "$PROJECT_ROOT/.claude_active_plan" << MARKER
 plan_file: ${PLAN_FILE}
 approved_at: $(date -Iseconds)
-session_ppid: ${PPID}
+session_id: ${SESSION_ID}
 MARKER
 
     # Ensure it's gitignored
@@ -54,7 +59,7 @@ if [[ -n "$RESOLVED_PLAN" ]]; then
         | tail -n +2 | grep -v '^## ' \
         | sed '/^[[:space:]]*$/d' \
         | head -3 \
-        > "/tmp/.claude_objective_${PPID}"
+        > "/tmp/.claude_objective_${SESSION_ID}"
 
     # Extract Scope — only lines starting with "- " that contain "/" (file paths)
     echo "$PLAN_CONTENT" \
@@ -65,7 +70,7 @@ if [[ -n "$RESOLVED_PLAN" ]]; then
         | sed 's/^[[:space:]]*-[[:space:]]*//' \
         | sed 's/[[:space:]]*$//' \
         | sed 's/`//g' \
-        > "/tmp/.claude_scope_${PPID}"
+        > "/tmp/.claude_scope_${SESSION_ID}"
 
     # Extract Success Criteria (between ## Success Criteria and next ##, first 3 lines)
     echo "$PLAN_CONTENT" \
@@ -73,7 +78,7 @@ if [[ -n "$RESOLVED_PLAN" ]]; then
         | tail -n +2 | grep -v '^## ' \
         | sed '/^[[:space:]]*$/d' \
         | head -3 \
-        > "/tmp/.claude_success_criteria_${PPID}"
+        > "/tmp/.claude_success_criteria_${SESSION_ID}"
 fi
 
 echo "Plan approved. Edits permitted until you start a new task with EnterPlanMode."

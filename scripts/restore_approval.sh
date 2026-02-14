@@ -3,9 +3,10 @@
 # Use when: approval state was lost but user confirms they approved earlier
 #
 # Usage: ~/.claude/scripts/restore_approval.sh
-
-# Create session marker
-touch "/tmp/.claude_plan_approved_${PPID}"
+#
+# Note: Only creates the project-scoped .claude_active_plan marker.
+# The session-scoped /tmp marker is lazily created by require_plan_approval.sh
+# when it detects .claude_active_plan on the next edit check.
 
 # Create active plan marker
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -13,7 +14,6 @@ if [[ -n "$PROJECT_ROOT" ]]; then
     cat > "$PROJECT_ROOT/.claude_active_plan" << MARKER
 plan_file: restored_by_user
 approved_at: $(date -Iseconds)
-session_ppid: ${PPID}
 restored: true
 MARKER
 fi

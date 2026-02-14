@@ -5,15 +5,19 @@
 
 trap 'exit 0' ERR
 
-PLANNING_MARKER="/tmp/.claude_planning_${PPID}"
-COUNTER_FILE="/tmp/.claude_explore_count_${PPID}"
-EXPLORATION_LOG="/tmp/.claude_exploration_log_${PPID}"
+# Read tool input first to extract session_id
+INPUT=$(cat)
+
+# Extract session_id from hook stdin JSON, fallback to PPID
+SESSION_ID=$(echo "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/')
+SESSION_ID="${SESSION_ID:-$PPID}"
+
+PLANNING_MARKER="/tmp/.claude_planning_${SESSION_ID}"
+COUNTER_FILE="/tmp/.claude_explore_count_${SESSION_ID}"
+EXPLORATION_LOG="/tmp/.claude_exploration_log_${SESSION_ID}"
 
 # Not in plan mode? Do nothing.
 [[ ! -f "$PLANNING_MARKER" ]] && exit 0
-
-# Read tool input (JSON with tool_name and tool_input)
-INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/')
 

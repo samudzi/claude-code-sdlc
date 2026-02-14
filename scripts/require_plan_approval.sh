@@ -3,7 +3,7 @@
 # Exit code 2 = block the action
 #
 # Two-tier approval:
-# 1. Session marker (/tmp/.claude_plan_approved_${PPID}) - current session
+# 1. Session marker (/tmp/.claude_plan_approved_${SESSION_ID}) - current session
 # 2. Active plan marker ($PROJECT/.claude_active_plan) - survives sessions
 #
 # Approval persists until EnterPlanMode starts a NEW task.
@@ -14,7 +14,7 @@
 # Helper: check if file is within the declared scope
 check_scope() {
     local file="$1"
-    local scope_file="/tmp/.claude_scope_${PPID}"
+    local scope_file="/tmp/.claude_scope_${SESSION_ID}"
 
     # If no scope file exists (older plan format), allow all edits
     [[ ! -f "$scope_file" ]] && return 0
@@ -61,10 +61,10 @@ EOF
 # Helper: output objective grounding + exploration context + git status
 inject_context() {
     local file="$1"
-    local log="/tmp/.claude_exploration_log_${PPID}"
-    local obj_file="/tmp/.claude_objective_${PPID}"
-    local scope_file="/tmp/.claude_scope_${PPID}"
-    local criteria_file="/tmp/.claude_success_criteria_${PPID}"
+    local log="/tmp/.claude_exploration_log_${SESSION_ID}"
+    local obj_file="/tmp/.claude_objective_${SESSION_ID}"
+    local scope_file="/tmp/.claude_scope_${SESSION_ID}"
+    local criteria_file="/tmp/.claude_success_criteria_${SESSION_ID}"
 
     # Objective grounding (injected FIRST to anchor attention)
     if [[ -f "$obj_file" && -s "$obj_file" ]]; then
@@ -103,6 +103,11 @@ inject_context() {
 
 # Read tool input
 INPUT=$(cat)
+
+# Extract session_id from hook stdin JSON, fallback to PPID
+SESSION_ID=$(echo "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/')
+SESSION_ID="${SESSION_ID:-$PPID}"
+
 FILE_PATH=$(echo "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 
 # Always allow writes to plan files (plan mode needs this — no context injection needed)
@@ -111,7 +116,7 @@ if [[ "$FILE_PATH" == *"/.claude/plans/"* ]]; then
 fi
 
 # Check 1: Session marker (fast path for current session)
-if [[ -f "/tmp/.claude_plan_approved_${PPID}" ]]; then
+if [[ -f "/tmp/.claude_plan_approved_${SESSION_ID}" ]]; then
     # Enforce scope before allowing the edit
     if ! check_scope "$FILE_PATH"; then
         exit 2
@@ -127,7 +132,7 @@ if [[ -n "$PROJECT_ROOT" && -f "$PROJECT_ROOT/.claude_active_plan" ]]; then
     MARKER_AGE=$(( $(date +%s) - $(stat -f %m "$PROJECT_ROOT/.claude_active_plan" 2>/dev/null || echo 0) ))
     if [[ $MARKER_AGE -lt 86400 ]]; then
         # Restore session marker for faster future checks
-        touch "/tmp/.claude_plan_approved_${PPID}"
+        touch "/tmp/.claude_plan_approved_${SESSION_ID}"
         # Enforce scope before allowing the edit
         if ! check_scope "$FILE_PATH"; then
             exit 2

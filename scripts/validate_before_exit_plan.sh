@@ -2,8 +2,13 @@
 # PreToolUse hook on ExitPlanMode — quality gate + marker creation
 # Exit 2 = block the tool. Exit 0 = allow (and markers are created).
 
-COUNTER_FILE="/tmp/.claude_explore_count_${PPID}"
-PLANNING_MARKER="/tmp/.claude_planning_${PPID}"
+# Read hook stdin for session_id
+INPUT=$(cat)
+SESSION_ID=$(echo "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/')
+SESSION_ID="${SESSION_ID:-$PPID}"
+
+COUNTER_FILE="/tmp/.claude_explore_count_${SESSION_ID}"
+PLANNING_MARKER="/tmp/.claude_planning_${SESSION_ID}"
 
 # ── Check 1: Exploration depth ──
 EXPLORE_COUNT=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
@@ -256,7 +261,7 @@ EOF
 fi
 
 # ── Check 4: Cross-reference plan against exploration log ──
-EXPLORATION_LOG="/tmp/.claude_exploration_log_${PPID}"
+EXPLORATION_LOG="/tmp/.claude_exploration_log_${SESSION_ID}"
 if [[ -f "$EXPLORATION_LOG" ]]; then
     # Extract unique basenames from READ entries in the exploration log
     EXPLORED_FILES=$(grep '^READ:' "$EXPLORATION_LOG" | sed 's/^READ:[[:space:]]*//' | xargs -I{} basename {} 2>/dev/null | sort -u)
@@ -294,14 +299,14 @@ EOF
 fi
 
 # ── All checks passed — create approval markers ──
-touch "/tmp/.claude_plan_approved_${PPID}"
+touch "/tmp/.claude_plan_approved_${SESSION_ID}"
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [[ -n "$PROJECT_ROOT" ]]; then
     cat > "$PROJECT_ROOT/.claude_active_plan" << MARKER
 plan_file: ${PLAN_FILE}
 approved_at: $(date -Iseconds)
-session_ppid: ${PPID}
+session_id: ${SESSION_ID}
 MARKER
 fi
 
