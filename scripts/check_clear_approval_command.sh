@@ -1,16 +1,35 @@
 #!/bin/bash
-# UserPromptSubmit hook — clears approval unless implementation has started
-# Once the model makes its first edit (context_injected exists), approval persists.
-# A new plan cycle (EnterPlanMode) resets everything.
+# UserPromptSubmit hook — approval persists until user explicitly accepts/rejects
+# Approval is only cleared by:
+#   1. User typing /accept or /reject (this hook)
+#   2. EnterPlanMode (clear_plan_on_new_task.sh)
 source "$(dirname "$0")/common.sh"
 init_hook
 
-# If implementation has started (first edit made), preserve approval
-if state_exists context_injected; then
-    exit 0
-fi
+# Extract the user's prompt text
+USER_PROMPT=$(echo "$HOOK_INPUT" | jq -r '.prompt // empty' 2>/dev/null)
 
-# No edits started yet — clear approval
-state_remove approved
+# Check for explicit acceptance/rejection commands
+case "$USER_PROMPT" in
+    /accept|/accept\ *)
+        state_remove approved
+        state_remove objective
+        state_remove scope
+        state_remove criteria
+        state_remove context_injected
+        echo "Work accepted. Plan approval cleared."
+        exit 0
+        ;;
+    /reject|/reject\ *)
+        state_remove approved
+        state_remove objective
+        state_remove scope
+        state_remove criteria
+        state_remove context_injected
+        echo "Work rejected. Plan approval cleared. Use EnterPlanMode to start a new plan."
+        exit 0
+        ;;
+esac
 
+# All other user messages: approval persists
 exit 0

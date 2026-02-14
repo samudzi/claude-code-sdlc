@@ -51,26 +51,25 @@ When something doesn't work, DO NOT immediately jump to code changes:
 
 Hooks **BLOCK Edit/Write/NotebookEdit** until plan approval.
 Hooks **BLOCK ExitPlanMode** if exploration or plan quality is insufficient.
-Approval **expires if no edits have started** — but once the first edit is made, approval persists across user messages until a new plan cycle begins.
+Approval **persists until the user explicitly accepts or rejects** the implementation outcome.
 
 ### State Machine
 
 ```
-[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved]
-      ^                                                           |
-      |                                                    (model makes first edit)
-      |                                                           |
-      |                                                    [Implementing]
-      |                                                      (approval persists
-      |                                                       across user messages)
-      |                                                           |
-      └──── EnterPlanMode (new plan cycle) ────────────────────────┘
-
-Pre-edit:  UserPromptSubmit clears approval (model must start promptly)
-Post-edit: UserPromptSubmit preserves approval (user can send follow-ups)
+[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved/Implementing]
+      ^                                                           │
+      │                                          (approval persists across ALL
+      │                                           user messages — no auto-expiry)
+      │                                                           │
+      │                                          user types /accept or /reject
+      │                                                           │
+      └───────────────────────────────────────────────────────────┘
 ```
 
-Before the first edit, any user message resets to [No Approval]. Once editing begins, approval persists until a new plan cycle.
+Approval is cleared ONLY by:
+- `/accept` — user accepts the implementation outcome
+- `/reject` — user rejects; must re-plan
+- `EnterPlanMode` — starting a new plan cycle clears the previous one
 
 ### The Workflow
 
@@ -78,21 +77,20 @@ Before the first edit, any user message resets to [No Approval]. Once editing be
 2. Explore codebase: Read docs, Grep/Glob for related code (minimum 3 reads/searches)
 3. Write substantive plan to plan file (50+ words, reference files found)
 4. `ExitPlanMode` → validates exploration + plan quality → creates approval markers → user approves
-5. Edit/Write/NotebookEdit now allowed — implement in THIS turn
-6. User sends next message → approval persists if edits started, clears if not
+5. Edit/Write/NotebookEdit now allowed — implement across as many turns as needed
+6. When implementation is complete, tell the user to review and type `/accept` or `/reject`
 
 ### When You See "BLOCKED: No approved plan"
 
-**Always:** Follow steps 1-6 above. Approval persists only after the first edit is made.
+**Always:** Follow steps 1-6 above.
 
 **Emergency escape hatch (user runs manually):**
 ```
 ~/.claude/scripts/restore_approval.sh
 ```
-(Approval still expires on next user message.)
 
 ### What NOT To Do
 
 - DO NOT bypass or work around the block
 - DO NOT create marker files directly
-- DO NOT assume prior approval carries forward unless edits have already started
+- DO NOT assume approval has expired — it persists until /accept, /reject, or new plan cycle

@@ -41,10 +41,9 @@ if [[ -n "$PLAN_FILE" && -f "$PLAN_FILE" ]]; then
         > "$(state_file criteria)"
 fi
 
-# Clean up planning state
+# Clean up planning state (but NOT context_injected — no longer used for approval logic)
 state_remove planning
 state_remove explore_count
-state_remove context_injected
 
-echo "Plan approved. Edits permitted for this turn."
+echo "Plan approved. Edits permitted until you type /accept or /reject."
 exit 0

@@ -21,7 +21,7 @@ REQUIRED WORKFLOW:
   4. ExitPlanMode     → Present plan for user approval
   5. [user approves]  → You can now edit files
 
-Approval persists once editing begins but expires if you haven't started yet.
+Approval persists until you type /accept or /reject.
 If you already had approval,
 ask the user to run: ~/.claude/scripts/restore_approval.sh <session_id>
 
