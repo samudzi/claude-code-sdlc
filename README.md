@@ -70,23 +70,137 @@ Commit message hygiene and safety checks. Set globally via `git config --global 
 | `CLAUDE.md` | Instructions loaded into every session — rules, plan requirements, state machine docs |
 | `settings.json` | Hook wiring — maps tool events to enforcement scripts |
 
+## Prerequisites
+
+**Required:**
+- **Bash** 3.0+ (ships with macOS; check with `bash --version`)
+- **Git** (for hooks and `git rev-parse` in scripts)
+- **Claude Code CLI** installed and working ([install guide](https://docs.anthropic.com/en/docs/claude-code))
+
+**Optional linting tools** (all degrade gracefully if missing):
+
+| Tool | Used for | Install |
+|------|----------|---------|
+| `shellcheck` | Shell script analysis | `brew install shellcheck` / `apt install shellcheck` |
+| `ruff` | Python linting | `pip install ruff` |
+| `flake8` | Python linting (ruff fallback) | `pip install flake8` |
+| `eslint` | JS/TS linting | `npm install -g eslint` |
+| `gofmt` | Go formatting | Included with Go |
+| `rustfmt` | Rust formatting | `rustup component add rustfmt` |
+| `git-lfs` | Large file storage | `brew install git-lfs` / `apt install git-lfs` |
+
+**Platform notes:**
+- **macOS**: Works out of the box.
+- **Linux**: Three scripts use macOS-specific `stat -f %m` for file timestamps. Replace with `stat -c %Y` in these files:
+  - `scripts/validate_before_exit_plan.sh` (line 34)
+  - `scripts/mark_plan_approved.sh` (line 40)
+  - `scripts/require_plan_approval.sh` (line 127)
+
 ## Installation
+
+### Step 1: Back up existing configuration
+
+If you already have a `~/.claude` directory with your own settings:
+
+```bash
+# Back up your existing config
+cp ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak 2>/dev/null
+cp ~/.claude/settings.json ~/.claude/settings.json.bak 2>/dev/null
+```
+
+### Step 2: Clone the template
 
 ```bash
 git clone https://github.com/samudzi/claude-code-sdlc.git ~/.claude-sdlc
+```
 
-# Copy into your ~/.claude directory (or symlink)
+### Step 3: Copy files into `~/.claude`
+
+```bash
+# Core configuration
 cp ~/.claude-sdlc/CLAUDE.md ~/.claude/CLAUDE.md
 cp ~/.claude-sdlc/settings.json ~/.claude/settings.json
+
+# Enforcement scripts
 cp -r ~/.claude-sdlc/scripts/ ~/.claude/scripts/
+
+# Git hooks (pre-commit linting, commit-msg hygiene)
 cp -r ~/.claude-sdlc/git-hooks/ ~/.claude/git-hooks/
+```
 
-# Make scripts executable
+If you had existing `CLAUDE.md` content, merge your backed-up rules into the new file — the SDLC rules must remain intact for the hooks to work correctly.
+
+### Step 4: Make scripts executable
+
+```bash
 chmod +x ~/.claude/scripts/*.sh ~/.claude/git-hooks/*
+```
 
-# Optional: set global git hooks
+### Step 5: Set global git hooks path
+
+```bash
 git config --global core.hooksPath ~/.claude/git-hooks
 ```
+
+This makes the pre-commit (linting + safety checks) and commit-msg (attribution stripping) hooks run in every repo. Repos with their own linting frameworks (`.pre-commit-config.yaml`, `.husky`, `lefthook.yml`, `lint-staged`) are automatically bypassed.
+
+### Step 6: Verify the installation
+
+```bash
+# 1. Check all scripts are executable
+ls -la ~/.claude/scripts/*.sh ~/.claude/git-hooks/*
+
+# 2. Syntax-check every script
+for f in ~/.claude/scripts/*.sh; do bash -n "$f" && echo "OK: $f"; done
+
+# 3. Verify hooks are wired
+cat ~/.claude/settings.json | grep -c '"command"'  # Should show 7 hooks
+
+# 4. Verify git hooks path
+git config --global core.hooksPath  # Should show ~/.claude/git-hooks
+
+# 5. Test in any git repo — make a trivial change and commit
+cd /tmp && git init test-sdlc && cd test-sdlc
+echo "test" > test.txt && git add test.txt && git commit -m "test"
+cd / && rm -rf /tmp/test-sdlc
+```
+
+### Step 7: Create the plans directory
+
+```bash
+mkdir -p ~/.claude/plans
+```
+
+This is where the model writes its plans during the planning phase. The directory is local-only (not tracked by git).
+
+## Per-Project vs Global Setup
+
+### Global (default)
+
+The files you installed apply to **every Claude Code session**:
+
+- `~/.claude/CLAUDE.md` — loaded as instructions in every session
+- `~/.claude/settings.json` — hooks fire on every tool call
+- `~/.claude/git-hooks/` — run on every git commit (via `core.hooksPath`)
+
+### Per-project overrides
+
+Create a `CLAUDE.md` in any project root to add project-specific rules. Claude Code loads **both** the global `~/.claude/CLAUDE.md` and the project's `CLAUDE.md`:
+
+```bash
+# Example: add project-specific instructions
+cat > ~/my-project/CLAUDE.md << 'EOF'
+# Project Instructions
+
+- Before modifying code, review `docs/architecture.md`
+- Run `npm test` after any changes to `src/`
+- Never modify files in `vendor/`
+EOF
+```
+
+### Per-project git hooks
+
+If a specific repo needs its own pre-commit hook **instead of** the global one, create `.git/hooks/pre-commit` in that repo. The global hook detects legitimate local hooks and chains to them automatically. Repos using framework-managed hooks (`.pre-commit-config.yaml`, `.husky`, `lefthook.yml`, `lint-staged`) are bypassed entirely.
 
 ## Customization
 
@@ -94,9 +208,13 @@ git config --global core.hooksPath ~/.claude/git-hooks
 
 **Adjust plan word minimum:** Change the `50` in `validate_before_exit_plan.sh` line 62.
 
+**Adjust plan staleness window:** Change `1800` (30 minutes) in `validate_before_exit_plan.sh` line 50.
+
 **Disable per-turn expiry:** Replace the body of `check_clear_approval_command.sh` with the original `/clear-approval`-only version to let approval persist across turns.
 
 **Add project-specific rules:** Create `<project>/CLAUDE.md` with project-specific instructions. These load alongside the global `~/.claude/CLAUDE.md`.
+
+**Disable specific git hooks:** Remove or rename individual files in `~/.claude/git-hooks/`. The pre-commit hook handles linting; the commit-msg hook strips Claude self-attribution; the others are git-lfs pass-throughs.
 
 ## Escape Hatches
 
