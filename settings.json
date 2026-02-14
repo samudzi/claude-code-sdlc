@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/scripts/validate_before_exit_plan.sh"
+            "command": "~/.claude/scripts/validate_plan_quality.sh"
           }
         ]
       },
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/scripts/mark_plan_approved.sh"
+            "command": "~/.claude/scripts/approve_plan.sh"
           }
         ]
       },
