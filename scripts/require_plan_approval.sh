@@ -21,7 +21,8 @@ REQUIRED WORKFLOW:
   4. ExitPlanMode     → Present plan for user approval
   5. [user approves]  → You can now edit files
 
-Approval expires on every user message. If you already had approval,
+Approval persists once editing begins but expires if you haven't started yet.
+If you already had approval,
 ask the user to run: ~/.claude/scripts/restore_approval.sh <session_id>
 
 DO NOT bypass. DO NOT create markers directly."
