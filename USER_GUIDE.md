@@ -40,9 +40,9 @@ When you give Claude a task, three things happen that wouldn't normally:
 
 1. **Claude must explore before planning.** It's blocked from entering plan mode until it has read at least 3 files — your docs, your existing code, the area it's about to change. No more plans based on assumptions.
 
-2. **Claude must plan before coding.** Every `Edit`, `Write`, and `NotebookEdit` call is blocked until a plan exists and you've approved it. The plan must be substantive (50+ words), reference real files, and describe what it found during exploration.
+2. **Claude must plan before coding.** Every `Edit`, `Write`, and `NotebookEdit` call is blocked until a plan exists and you've approved it. The plan must include four sections — **Objective** (what and why), **Scope** (every file to be modified), **Success Criteria** (how to verify), and **Justification** (why this approach, citing project docs). It must be 50+ words, reference real files, and describe what it found during exploration.
 
-3. **Scope is enforced.** The plan declares which files will be modified. Edits to unlisted files are blocked. No more "while I was in there, I also refactored..."
+3. **Scope is enforced.** The files listed in the plan's `## Scope` section are the only files Claude can edit. Attempts to modify unlisted files are blocked. No more "while I was in there, I also refactored..."
 
 The net effect: Claude behaves like a senior engineer on their first day — technically strong, but checking in with you before making changes because they know they lack context.
 

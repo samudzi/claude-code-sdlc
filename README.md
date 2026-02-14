@@ -8,7 +8,7 @@ Claude Code's helpfulness bias makes it skip exploration and write thin plans. I
 
 ## The Solution
 
-Three enforcement layers, each backed by shell scripts that block tool execution when the model cuts corners:
+Four enforcement layers, each backed by shell scripts that block tool execution when the model cuts corners:
 
 ### Layer 1: Plan Gate (Edit/Write Blocking)
 **No code changes without an approved plan.** Every `Edit`, `Write`, and `NotebookEdit` call is intercepted by `require_plan_approval.sh`. If no approval markers exist, the tool is blocked with instructions telling the model exactly what to do.
@@ -22,12 +22,18 @@ Three enforcement layers, each backed by shell scripts that block tool execution
 | Check | Requirement | Why |
 |-------|-------------|-----|
 | Exploration depth | >= 3 reads/searches | Forces the model to actually look at docs and code |
+| Plan file exists | `.md` file in `~/.claude/plans/` or `.claude/plans/` | No plan = no approval |
 | Plan freshness | < 30 minutes old | Prevents stale plans from prior sessions |
 | Plan substance | >= 50 words | Blocks one-liner "plans" |
 | File references | At least one file path | Plan must reference real files |
 | Exploration evidence | Keywords like "existing", "found", "current" | Plan must describe what was discovered |
+| Required sections | `## Objective` (10+ words), `## Scope` (file paths), `## Success Criteria` (10+ words), `## Justification` (cites project files + reasoning) | Enforces structured planning |
+| Exploration cross-ref | Plan mentions >= 2 files from exploration log | Proves the plan builds on actual exploration, not assumptions |
 
 If any check fails, `ExitPlanMode` is blocked and the model gets a specific error message telling it what's missing.
+
+### Layer 4: Destructive Command Guard
+**Dangerous shell commands are blocked when they'd discard work.** `guard_destructive_bash.sh` intercepts every `Bash` tool call and blocks `git checkout --`, `git reset --hard`, `git clean -f`, and `rm -rf` when they target uncommitted or git-tracked files. The model must ask the user for confirmation before proceeding.
 
 ## State Machine
 
@@ -185,8 +191,8 @@ ls -la ~/.claude/scripts/*.sh
 # 2. Syntax-check every script
 for f in ~/.claude/scripts/*.sh; do bash -n "$f" && echo "OK: $f"; done
 
-# 3. Verify hooks are wired
-cat ~/.claude/settings.json | grep -c '"command"'  # Should show 7 hooks
+# 3. Verify hooks are wired (9 hook scripts across 5 event types)
+grep -c 'scripts/' ~/.claude/settings.json  # Should show 9
 
 # 4. Verify plugin exists
 cat ~/.claude/plugins/plan-workflow/.claude-plugin/plugin.json
