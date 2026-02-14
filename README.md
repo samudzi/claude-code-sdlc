@@ -2,6 +2,10 @@
 
 A hook-based system that mechanically enforces software development discipline in Claude Code sessions. Instead of relying on instructions that the model can ignore, this uses Claude Code's hook system to **block tool execution** when the model tries to skip steps.
 
+<p align="center">
+  <img src="demo.gif" alt="Plan mode in action" width="600">
+</p>
+
 ## The Problem
 
 Claude Code's helpfulness bias makes it skip exploration and write thin plans. Instruction files say "explore first, plan second" but the model routinely jumps straight to code. The result: changes that don't fit the codebase, duplicate functions, missed patterns.
