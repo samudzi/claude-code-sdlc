@@ -1,0 +1,7 @@
+{
+  "name": "plan-workflow",
+  "description": "Plan approval lifecycle commands: /accept to close a completed implementation, /reject to discard and re-plan",
+  "author": {
+    "name": "shingi"
+  }
+}
