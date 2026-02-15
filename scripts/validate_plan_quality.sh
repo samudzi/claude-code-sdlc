@@ -142,7 +142,12 @@ fi
 
 # ── Check 7: Cross-reference exploration log ──
 if state_exists exploration_log; then
-    EXPLORED_FILES=$(grep '^READ:' "$(state_file exploration_log)" | sed 's/^READ:[[:space:]]*//' | xargs -I{} basename {} 2>/dev/null | sort -u)
+    # Extract basenames from READ entries (format: "READ: /path/to/file")
+    READ_BASENAMES=$(grep '^READ:' "$(state_file exploration_log)" | sed 's/^READ:[[:space:]]*//' | xargs -I{} basename {} 2>/dev/null)
+    # Extract basenames from SEARCH entries (format: "SEARCH: pattern | /path")
+    SEARCH_BASENAMES=$(grep '^SEARCH:' "$(state_file exploration_log)" | sed 's/^SEARCH:.*|[[:space:]]*//' | xargs -I{} basename {} 2>/dev/null)
+    # Combine and deduplicate
+    EXPLORED_FILES=$(printf '%s\n%s' "$READ_BASENAMES" "$SEARCH_BASENAMES" | sort -u)
     if [[ -n "$EXPLORED_FILES" ]]; then
         MATCH_COUNT=0
         while IFS= read -r BASENAME; do

@@ -12,11 +12,22 @@ state_remove exploration_log
 state_remove context_injected
 state_remove plan_file
 
-# Clear persistent state
-persist_remove approved
-persist_remove objective
-persist_remove scope
-persist_remove criteria
+# Clear persistent state — only if approval is stale (> 30 min)
+# This prevents the destructive loop where EnterPlanMode (called as recovery
+# from a BLOCKED edit) wipes a recent approval before it can be hydrated
+if persist_exists approved; then
+    APPROVAL_AGE=$(( $(date +%s) - $(file_mtime "$(persist_file approved)") ))
+    if [[ "$APPROVAL_AGE" -gt 1800 ]]; then
+        persist_remove approved
+        persist_remove objective
+        persist_remove scope
+        persist_remove criteria
+    fi
+else
+    persist_remove objective
+    persist_remove scope
+    persist_remove criteria
+fi
 
 # Enter planning mode
 state_write planning "1"

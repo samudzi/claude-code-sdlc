@@ -339,8 +339,8 @@ printf "\n${YELLOW}── Group 4: clear_plan_on_new_task.sh ──${NC}\n"
 
 CLEAR_TASK="${SCRIPTS_DIR}/clear_plan_on_new_task.sh"
 
-# 4.1 Clears approval markers from both dirs
-begin_test "4.1 Clears approval from STATE_DIR and PERSIST_DIR"
+# 4.1 Clears stale approval from both dirs (approval > 30 min old)
+begin_test "4.1 Clears stale approval from STATE_DIR and PERSIST_DIR"
 setup
 echo "1" > "${CLAUDE_TEST_STATE_DIR}/approved"
 echo "obj" > "${CLAUDE_TEST_STATE_DIR}/objective"
@@ -350,11 +350,30 @@ echo "1" > "${CLAUDE_TEST_PERSIST_DIR}/approved"
 echo "obj" > "${CLAUDE_TEST_PERSIST_DIR}/objective"
 echo "sc" > "${CLAUDE_TEST_PERSIST_DIR}/scope"
 echo "cr" > "${CLAUDE_TEST_PERSIST_DIR}/criteria"
+# Backdate the persist/approved file to 31 minutes ago
+touch -t "$(date -v-31M '+%Y%m%d%H%M.%S')" "${CLAUDE_TEST_PERSIST_DIR}/approved"
 run_hook "$CLEAR_TASK" "$(json_posttooluse EnterPlanMode)"
 assert_file_missing "${CLAUDE_TEST_STATE_DIR}/approved" \
     && assert_file_missing "${CLAUDE_TEST_STATE_DIR}/objective" \
     && assert_file_missing "${CLAUDE_TEST_PERSIST_DIR}/approved" \
     && assert_file_missing "${CLAUDE_TEST_PERSIST_DIR}/objective" \
+    && pass
+teardown
+
+# 4.1b Preserves fresh persistent approval (< 30 min old)
+begin_test "4.1b Preserves fresh persist approval on EnterPlanMode"
+setup
+echo "1" > "${CLAUDE_TEST_STATE_DIR}/approved"
+echo "obj" > "${CLAUDE_TEST_STATE_DIR}/objective"
+echo "1" > "${CLAUDE_TEST_PERSIST_DIR}/approved"
+echo "obj" > "${CLAUDE_TEST_PERSIST_DIR}/objective"
+echo "sc" > "${CLAUDE_TEST_PERSIST_DIR}/scope"
+echo "cr" > "${CLAUDE_TEST_PERSIST_DIR}/criteria"
+# persist/approved is fresh (just created) — should be preserved
+run_hook "$CLEAR_TASK" "$(json_posttooluse EnterPlanMode)"
+assert_file_missing "${CLAUDE_TEST_STATE_DIR}/approved" \
+    && assert_file_exists "${CLAUDE_TEST_PERSIST_DIR}/approved" "persist/approved preserved" \
+    && assert_file_exists "${CLAUDE_TEST_PERSIST_DIR}/objective" "persist/objective preserved" \
     && pass
 teardown
 
@@ -474,6 +493,120 @@ assert_file_missing "${CLAUDE_TEST_PERSIST_DIR}/approved" \
     && assert_file_missing "${CLAUDE_TEST_HOOKS_DIR}/session-clr/approved" \
     && assert_file_missing "${CLAUDE_TEST_HOOKS_DIR}/session-clr/criteria" \
     && pass
+teardown
+
+# ══════════════════════════════════════════════════════════════════
+# GROUP 7: Workflow integration tests (multi-step sequences)
+# ══════════════════════════════════════════════════════════════════
+printf "\n${YELLOW}── Group 7: Workflow integration tests ──${NC}\n"
+
+APPROVE="${SCRIPTS_DIR}/approve_plan.sh"
+REQUIRE="${SCRIPTS_DIR}/require_plan_approval.sh"
+CLEAR_TASK="${SCRIPTS_DIR}/clear_plan_on_new_task.sh"
+
+# 7.1 Happy path: EnterPlanMode → approve → Edit allowed
+begin_test "7.1 Full workflow: plan → approve → edit allowed"
+setup
+# Step 1: EnterPlanMode clears state and starts planning
+run_hook "$CLEAR_TASK" "$(json_posttooluse EnterPlanMode)"
+# Step 2: Simulate exploration (track_exploration increments count)
+echo "1" > "${CLAUDE_TEST_STATE_DIR}/planning"
+run_hook "${SCRIPTS_DIR}/track_exploration.sh" "$(json_pretooluse Read /some/readme.md)"
+run_hook "${SCRIPTS_DIR}/track_exploration.sh" "$(json_pretooluse Grep "" "pattern" /src)"
+run_hook "${SCRIPTS_DIR}/track_exploration.sh" "$(json_pretooluse Read /some/main.sh)"
+# Step 3: approve_plan.sh (PostToolUse on ExitPlanMode) creates approval
+run_hook "$APPROVE" "$(json_posttooluse ExitPlanMode)"
+# Step 4: Edit should now be allowed
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_exit_code 0 && assert_output_not_contains '"deny"' && pass
+teardown
+
+# 7.2 Cross-session persistence: approve → destroy session → new session → Edit allowed
+begin_test "7.2 Cross-session: approve persists, hydration restores"
+setup
+# Session A: approve a plan
+run_hook "$APPROVE" "$(json_posttooluse ExitPlanMode)"
+assert_file_exists "${CLAUDE_TEST_PERSIST_DIR}/approved" "persist written"
+# Session A ends: destroy session state (simulates cleanup_session.sh)
+rm -rf "${CLAUDE_TEST_STATE_DIR}"
+mkdir -p "${CLAUDE_TEST_STATE_DIR}"
+# Session B: new session, empty STATE_DIR — init_hook should hydrate from PERSIST_DIR
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_exit_code 0 && assert_output_not_contains '"deny"' && pass
+teardown
+
+# 7.3 Recovery loop broken: Edit blocked → EnterPlanMode → persist survives
+begin_test "7.3 Fresh approval survives EnterPlanMode (loop breaker)"
+setup
+# Approval exists in persist (fresh, < 30 min)
+echo "1" > "${CLAUDE_TEST_PERSIST_DIR}/approved"
+echo "obj" > "${CLAUDE_TEST_PERSIST_DIR}/objective"
+echo "sc" > "${CLAUDE_TEST_PERSIST_DIR}/scope"
+# Model enters plan mode as recovery — persist should survive
+run_hook "$CLEAR_TASK" "$(json_posttooluse EnterPlanMode)"
+# Persist approval should still exist
+assert_file_exists "${CLAUDE_TEST_PERSIST_DIR}/approved" "persist/approved survived" && pass
+teardown
+
+# 7.4 Destructive loop prevented: blocked → EnterPlanMode → re-approve → edit works
+begin_test "7.4 Recovery: blocked → plan mode → approve → edit works"
+setup
+# Start with no approval — Edit is blocked
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_json_field '.hookSpecificOutput.permissionDecision' 'deny'
+# Model enters plan mode
+run_hook "$CLEAR_TASK" "$(json_posttooluse EnterPlanMode)"
+# Model explores and gets plan approved
+run_hook "$APPROVE" "$(json_posttooluse ExitPlanMode)"
+# Now Edit should work
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_exit_code 0 && assert_output_not_contains '"deny"' && pass
+teardown
+
+# 7.5 restore_approval.sh → Edit works without entering plan mode
+begin_test "7.5 restore_approval → edit works (no plan mode needed)"
+setup
+# No approval exists
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_json_field '.hookSpecificOutput.permissionDecision' 'deny'
+# User runs restore_approval.sh
+run_hook "${SCRIPTS_DIR}/restore_approval.sh" ""
+# Edit should now work (init_hook hydrates from persist)
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_exit_code 0 && assert_output_not_contains '"deny"' && pass
+teardown
+
+# 7.6 BLOCKED message: with plan file → suggests ExitPlanMode, not EnterPlanMode
+begin_test "7.6 BLOCKED with existing plan → suggests ExitPlanMode"
+setup
+# Create a plan file
+mkdir -p "${HOME}/.claude/plans"
+TEMP_PLAN="${HOME}/.claude/plans/_test_plan_7_6.md"
+echo "test plan" > "$TEMP_PLAN"
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_output_contains "call ExitPlanMode to get it approved" \
+    && assert_output_not_contains "REQUIRED WORKFLOW" \
+    && pass
+rm -f "$TEMP_PLAN"
+teardown
+
+# 7.7 BLOCKED message: no plan file → suggests full EnterPlanMode workflow
+begin_test "7.7 BLOCKED without plan file → suggests EnterPlanMode"
+setup
+# Ensure no plan files exist (move any aside)
+PLAN_BAK=""
+for pf in "${HOME}/.claude/plans/"*.md; do
+    if [[ -f "$pf" ]]; then
+        PLAN_BAK="$pf"
+        mv "$pf" "${pf}.test_bak"
+    fi
+done
+run_hook "$REQUIRE" "$(json_pretooluse Edit /some/file.sh)"
+assert_output_contains "EnterPlanMode" && pass
+# Restore any backed-up plan files
+for bak in "${HOME}/.claude/plans/"*.test_bak; do
+    [[ -f "$bak" ]] && mv "$bak" "${bak%.test_bak}"
+done
 teardown
 
 # ══════════════════════════════════════════════════════════════════
