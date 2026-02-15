@@ -34,6 +34,31 @@ This system forces Claude to orient itself before it writes a single line. Not t
 - **Learning or experimenting** — The overhead isn't worth it when you're just trying things
 - **Tiny codebases** — Under ~500 lines, Claude can hold the whole thing in context anyway
 
+## Getting Started
+
+### The Approval Workflow
+
+When Claude finishes writing a plan, it calls `ExitPlanMode` which presents the plan for your review. The system will show a dialog with built-in approval options (typically 3 buttons). **Do not select any of these built-in options.** They do not properly trigger the hook-based approval workflow.
+
+Instead, type **`/approve`** in the text input field. This is the only way to correctly unlock plan approval and proceed to implementation.
+
+### Quick Reference: Commands
+
+| Command | When to use | What it does |
+|---------|-------------|--------------|
+| **`/approve`** | After reviewing a plan | Unlocks editing — Claude can now implement the plan |
+| **`/accept`** | After implementation is complete | Clears approval — signals you're satisfied with the work |
+| **`/reject`** | If implementation is wrong | Clears approval — forces Claude to re-plan |
+
+### Step-by-step
+
+1. Give Claude a task
+2. Claude explores your codebase (reads docs, searches for existing code)
+3. Claude writes a plan and presents it to you
+4. **You review the plan, then type `/approve`** (do not click the built-in buttons)
+5. Claude implements the approved plan
+6. You review the implementation, then type `/accept` or `/reject`
+
 ## How It Works (The User Experience)
 
 When you give Claude a task, three things happen that wouldn't normally:
@@ -54,8 +79,9 @@ The net effect: Claude behaves like a senior engineer on their first day — tec
 You:     "Fix the race condition in the payment processor — see issue #247"
 Claude:  [reads README, payment module, related tests — at least 3 files]
 Claude:  [enters plan mode, writes plan describing what it found and how it'll fix it]
-Claude:  "Here's my plan: [plan]. Ready to implement?"
-You:     [review plan, approve or request changes]
+Claude:  "Here's my plan: [plan]. Please enter /approve to unlock plan approval
+          and proceed to implementation."
+You:     /approve                          ← type this, don't click built-in buttons
 Claude:  [implements the fix, scoped to approved files only]
 Claude:  "Implementation complete. Review and type /accept or /reject."
 You:     /accept
@@ -70,6 +96,8 @@ Approval persists across your messages — you can send follow-ups like "also up
 Approval is stored per project directory and **survives across sessions**. If you approve a plan, close Claude, and come back later, the approval is still there. Claude picks up where it left off — no re-planning required.
 
 ### When does approval clear?
+
+Approval is set when you type **`/approve`** after reviewing a plan.
 
 Approval clears only when:
 - You type **`/accept`** — you're satisfied with the implementation

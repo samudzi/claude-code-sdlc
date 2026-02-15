@@ -49,5 +49,5 @@ fi
 state_remove planning
 state_remove explore_count
 
-echo "Plan approved. Edits permitted until /accept or /reject."
+echo "Plan presented to user. Remind them to type /approve to confirm approval. Edits permitted after /approve, until /accept or /reject."
 exit 0

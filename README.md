@@ -42,16 +42,23 @@ If any check fails, `ExitPlanMode` is blocked and the model gets a specific erro
 ## State Machine
 
 ```
-[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved/Implementing]
-      ^                               |                           |
-      |                          (reads tracked,            (approval persists
-      |                           counter increments)        across messages
-      |                                                      AND sessions)
-      |                                                           |
-      └──── /accept, /reject, or EnterPlanMode ──────────────────┘
+[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Awaiting /approve] ──/approve──► [Approved/Implementing]
+      ^                               |                                                              |
+      |                          (reads tracked,                                               (approval persists
+      |                           counter increments)                                           across messages
+      |                                                                                         AND sessions)
+      |                                                                                              |
+      └──── /accept, /reject, or EnterPlanMode ─────────────────────────────────────────────────────┘
 ```
 
-Approval is **persistent** — stored per project directory in `~/.claude/state/`. New sessions on the same project automatically inherit existing approval. Approval clears only when:
+> **Important:** When Claude presents a plan via `ExitPlanMode`, do **not** select the built-in approval options. Instead, type **`/approve`** in the text input to properly activate the hook-based approval workflow.
+
+Approval is **persistent** — stored per project directory in `~/.claude/state/`. New sessions on the same project automatically inherit existing approval.
+
+Approval is set by:
+- **`/approve`** — user approves the plan after reviewing it (plugin command)
+
+Approval clears only when:
 
 - **`/accept`** — user accepts the completed implementation (plugin command)
 - **`/reject`** — user rejects; must re-plan (plugin command)
@@ -83,6 +90,7 @@ Approval is **persistent** — stored per project directory in `~/.claude/state/
 
 | Command | Description |
 |---------|-------------|
+| `/approve` | Approve the current plan and unlock editing |
 | `/accept` | Accept completed implementation, clear plan approval |
 | `/reject` | Reject implementation, clear approval, request feedback |
 
@@ -213,7 +221,7 @@ The files you installed apply to **every Claude Code session**:
 
 - `~/.claude/CLAUDE.md` — loaded as instructions in every session
 - `~/.claude/settings.json` — hooks fire on every tool call
-- `~/.claude/plugins/plan-workflow/` — `/accept` and `/reject` commands available everywhere
+- `~/.claude/plugins/plan-workflow/` — `/approve`, `/accept`, and `/reject` commands available everywhere
 - `~/.claude/git-hooks/` — run on every git commit (via `core.hooksPath`)
 
 ### Per-project overrides

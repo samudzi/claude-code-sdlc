@@ -177,5 +177,5 @@ fi
 # ── All checks passed — record plan file path for approve_plan.sh ──
 state_write plan_file "$PLAN_FILE"
 
-echo "Plan validated. Awaiting user approval via ExitPlanMode."
+echo "Plan validated. Tell the user: Please enter /approve to unlock plan approval and proceed to implementation. Do NOT select the built-in approval options."
 exit 0

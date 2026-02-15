@@ -56,15 +56,18 @@ Approval **persists across sessions** (project-scoped) until explicitly cleared.
 ### State Machine
 
 ```
-[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved/Implementing]
-      ^                                                           │
-      │                                          (approval persists across ALL
-      │                                           user messages AND sessions)
-      │                                                           │
-      │                                          /accept, /reject, or EnterPlanMode
-      │                                                           │
-      └───────────────────────────────────────────────────────────┘
+[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Awaiting /approve] ──/approve──► [Approved/Implementing]
+      ^                                                                                              │
+      │                                                                         (approval persists across ALL
+      │                                                                          user messages AND sessions)
+      │                                                                                              │
+      │                                                                         /accept, /reject, or EnterPlanMode
+      │                                                                                              │
+      └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Approval is set by:
+- `/approve` — user approves the plan after reviewing it (command)
 
 Approval is cleared ONLY by:
 - `/accept` — user accepts the implementation (command)
@@ -79,8 +82,8 @@ project automatically inherit existing approval state.
 1. `EnterPlanMode` → clears approval, enters planning, starts exploration tracking
 2. Explore codebase: Read docs, Grep/Glob for related code (minimum 3 reads/searches)
 3. Write substantive plan to plan file (50+ words, reference files found)
-4. `ExitPlanMode` → validates exploration + plan quality → user approves
-5. Edit/Write/NotebookEdit now allowed — implement across as many turns as needed
+4. `ExitPlanMode` → validates exploration + plan quality → tell the user: "Please enter `/approve` to unlock plan approval and proceed to implementation." Do NOT tell users to select the built-in approval options — they must type `/approve` as free text.
+5. `/approve` → user confirms plan approval → Edit/Write/NotebookEdit now allowed — implement across as many turns as needed
 6. When implementation is complete, tell the user to review and type `/accept` or `/reject`
 
 ### When You See "BLOCKED: No approved plan"
