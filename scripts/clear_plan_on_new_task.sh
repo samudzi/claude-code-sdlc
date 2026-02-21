@@ -29,9 +29,12 @@ else
     persist_remove criteria
 fi
 
-# Enter planning mode
+# Enter planning mode (session + persistent)
 state_write planning "1"
 state_write explore_count "0"
+persist_write planning "1"
+persist_write explore_count "0"
+persist_remove exploration_log
 
 echo "Previous plan cleared. Exploration tracking started. Read docs and code before writing a plan."
 exit 0

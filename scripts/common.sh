@@ -34,6 +34,14 @@ init_hook() {
             [[ -f "${PERSIST_DIR}/$f" ]] && cp "${PERSIST_DIR}/$f" "${STATE_DIR}/$f"
         done
     fi
+
+    # Hydrate: if session lacks planning state but project has it, restore into session
+    # (survives session ID changes from context compaction)
+    if [[ ! -f "${STATE_DIR}/planning" && -f "${PERSIST_DIR}/planning" ]]; then
+        for f in planning explore_count exploration_log; do
+            [[ -f "${PERSIST_DIR}/$f" ]] && cp "${PERSIST_DIR}/$f" "${STATE_DIR}/$f"
+        done
+    fi
 }
 
 # ── Session state helpers ──

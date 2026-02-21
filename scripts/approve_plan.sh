@@ -45,9 +45,13 @@ if [[ -n "$PLAN_FILE" && -f "$PLAN_FILE" ]]; then
     echo "$CRIT" > "$(persist_file criteria)"
 fi
 
-# Clean up planning state
+# Clean up planning state (session + persistent)
 state_remove planning
 state_remove explore_count
+state_remove exploration_log
+persist_remove planning
+persist_remove explore_count
+persist_remove exploration_log
 
 echo "Plan presented to user. Remind them to type /approve to confirm approval. Edits permitted after /approve, until /accept or /reject."
 exit 0
