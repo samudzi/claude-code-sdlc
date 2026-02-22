@@ -56,20 +56,20 @@ Approval **persists across sessions** (project-scoped) until explicitly cleared.
 ### State Machine
 
 ```
-[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Awaiting /approve] ──/approve──► [Approved/Implementing]
-      ^                                                                                              │
-      │                                                                         (approval persists across ALL
-      │                                                                          user messages AND sessions)
-      │                                                                                              │
-      │                                                                         /accept, /reject, or EnterPlanMode
-      │                                                                                              │
-      └──────────────────────────────────────────────────────────────────────────────────────────────┘
+[No Approval] ──EnterPlanMode──► [Planning] ──ExitPlanMode──► [Approved/Implementing]
+      ^                                                              │
+      │                                              clear_approval.sh (model runs when done)
+      │                                                              │
+      │                                              /accept, /reject, or EnterPlanMode
+      │                                                              │
+      └──────────────────────────────────────────────────────────────┘
 ```
 
 Approval is set by:
-- `/approve` — user approves the plan after reviewing it (command)
+- `ExitPlanMode` — user accepts the plan → editing unlocked immediately
 
-Approval is cleared ONLY by:
+Approval is cleared by:
+- `~/.claude/scripts/clear_approval.sh` — model runs this after implementation is complete (HARD LOCK)
 - `/accept` — user accepts the implementation (command)
 - `/reject` — user rejects; must re-plan (command)
 - `EnterPlanMode` — starting a new plan cycle clears the previous one
@@ -82,21 +82,23 @@ project automatically inherit existing approval state.
 1. `EnterPlanMode` → clears approval, enters planning, starts exploration tracking
 2. Explore codebase: Read docs, Grep/Glob for related code (minimum 3 reads/searches)
 3. Write substantive plan to plan file (50+ words, reference files found)
-4. `ExitPlanMode` → validates exploration + plan quality → tell the user: "Please enter `/approve` to unlock plan approval and proceed to implementation." Do NOT tell users to select the built-in approval options — they must type `/approve` as free text.
-5. `/approve` → user confirms plan approval → Edit/Write/NotebookEdit now allowed — implement across as many turns as needed
-6. When implementation is complete, tell the user to review and type `/accept` or `/reject`
+4. `ExitPlanMode` → validates exploration + plan quality → plan is approved → editing unlocked. Tell the user: "Plan approved. Starting implementation."
+5. Implement ONLY the changes described in the plan. Every edit injects a scope reminder.
+6. When implementation is complete, run `~/.claude/scripts/clear_approval.sh` to lock further edits. Then tell the user to review and type `/accept` or `/reject`.
 
-### When You See "BLOCKED: No approved plan"
+### Emergency escape hatch
 
-**Always:** Follow steps 1-6 above.
-
-**Emergency escape hatch (user runs manually from project directory):**
+If approval is lost or needs manual restore (user runs from project directory):
 ```
 ~/.claude/scripts/restore_approval.sh
 ```
+
+`/approve` also restores approval (emergency use only — not part of normal flow).
 
 ### What NOT To Do
 
 - DO NOT bypass or work around the block
 - DO NOT create marker files directly
-- DO NOT assume approval has expired — it persists until /accept, /reject, or new plan cycle
+- DO NOT assume approval has expired — it persists until cleared
+- DO NOT make edits after running clear_approval.sh — you are locked out
+- DO NOT make edits beyond what the approved plan describes

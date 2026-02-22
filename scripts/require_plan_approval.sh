@@ -79,31 +79,29 @@ To modify this file, update your plan's ## Scope section and get re-approval."
     fi
 fi
 
-# ── Context injection (first edit only) ──
-if ! state_exists context_injected; then
-    state_write context_injected "1"
+# ── Context injection (every edit) ──
+EDIT_COUNT=$(counter_increment edit_count)
 
-    CONTEXT=""
-    if state_exists objective; then
-        CONTEXT+="── OBJECTIVE ──
+CONTEXT=""
+if state_exists objective; then
+    CONTEXT+="── OBJECTIVE ──
 $(state_read objective)
 "
-    fi
-    if state_exists scope; then
-        CONTEXT+="── SCOPE (only these files may be edited) ──
+fi
+if state_exists scope; then
+    CONTEXT+="── SCOPE (only these files may be edited) ──
 $(state_read scope)
 "
-    fi
-    if state_exists criteria; then
-        CONTEXT+="── SUCCESS CRITERIA ──
+fi
+if state_exists criteria; then
+    CONTEXT+="── SUCCESS CRITERIA ──
 $(state_read criteria)
 "
-    fi
-
-    if [[ -n "$CONTEXT" ]]; then
-        allow_with_context "$CONTEXT"
-    fi
 fi
+CONTEXT+="── CONSTRAINT ──
+Edit #${EDIT_COUNT}. ONLY make changes described in the approved plan. When implementation is complete, run: ~/.claude/scripts/clear_approval.sh — then tell the user to /accept or /reject. Do NOT make additional edits after signaling completion.
+"
 
-# Subsequent edits: silent allow
-exit 0
+if [[ -n "$CONTEXT" ]]; then
+    allow_with_context "$CONTEXT"
+fi

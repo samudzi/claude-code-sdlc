@@ -53,5 +53,5 @@ persist_remove planning
 persist_remove explore_count
 persist_remove exploration_log
 
-echo "Plan presented to user. Remind them to type /approve to confirm approval. Edits permitted after /approve, until /accept or /reject."
+echo "Plan approved. Editing unlocked. Implement ONLY the approved changes. When done, run ~/.claude/scripts/clear_approval.sh then tell the user to /accept or /reject."
 exit 0
